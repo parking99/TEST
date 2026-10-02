@@ -344,7 +344,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         // Query detailed battery status
         _ = Cmds.getBatteryInfo().send { [weak self] res in
             if case .success(let model) = res, let m = model {
-                let b = Int(m.curEnergy)
+                let b = Int(m.level)
                 if (1...100).contains(b) {
                     DispatchQueue.main.async {
                         self?.currentBattery = b
