@@ -137,18 +137,51 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
     }
 
     func isDeviceBound(macAddress: String) -> Bool {
+        let defaults = UserDefaults.standard
+        if defaults.bool(forKey: "is_any_device_bound") {
+            return true
+        }
         guard !macAddress.isEmpty else { return false }
-        return UserDefaults.standard.bool(forKey: "bound_\(macAddress)")
+        if defaults.bool(forKey: "bind-state-\(macAddress)") { return true }
+        if defaults.bool(forKey: "bound_\(macAddress)") { return true }
+        let clean = macAddress.replacingOccurrences(of: ":", with: "").uppercased()
+        if defaults.bool(forKey: "bind-state-\(clean)") { return true }
+        if defaults.bool(forKey: "bind-state-\(macAddress.uppercased())") { return true }
+        if defaults.bool(forKey: "bind-state-\(macAddress.lowercased())") { return true }
+        return false
     }
 
     func markDeviceBound(macAddress: String, bound: Bool) {
-        guard !macAddress.isEmpty else { return }
         let defaults = UserDefaults.standard
-        defaults.set(bound, forKey: "bound_\(macAddress)")
-        if bound {
-            defaults.set(macAddress, forKey: "last_connected_mac")
-            defaults.set(currentDeviceName, forKey: "last_connected_name")
+        defaults.set(bound, forKey: "is_any_device_bound")
+
+        var candidates: [String] = []
+        if !macAddress.isEmpty { candidates.append(macAddress) }
+        if !currentDeviceUUID.isEmpty && !candidates.contains(currentDeviceUUID) { candidates.append(currentDeviceUUID) }
+        if let m = currentConnectedModel?.macAddress, !m.isEmpty && !candidates.contains(m) { candidates.append(m) }
+        let sdkMac = sdk.device.macAddressFull
+        if !sdkMac.isEmpty && !candidates.contains(sdkMac) { candidates.append(sdkMac) }
+        if let sm = sdk.device.macAddress, !sm.isEmpty && !candidates.contains(sm) { candidates.append(sm) }
+
+        for candidate in candidates {
+            defaults.set(bound, forKey: "bind-state-\(candidate)")
+            defaults.set(bound, forKey: "bound_\(candidate)")
+            defaults.set(bound, forKey: "bind-state-\(candidate.uppercased())")
+            defaults.set(bound, forKey: "bind-state-\(candidate.lowercased())")
+            let clean = candidate.replacingOccurrences(of: ":", with: "").uppercased()
+            defaults.set(bound, forKey: "bind-state-\(clean)")
         }
+
+        if bound {
+            let primaryMac = !macAddress.isEmpty ? macAddress : (!sdkMac.isEmpty ? sdkMac : currentDeviceUUID)
+            defaults.set(primaryMac, forKey: "last_connected_mac")
+            defaults.set(currentDeviceName, forKey: "last_connected_name")
+        } else {
+            defaults.removeObject(forKey: "last_connected_mac")
+            defaults.removeObject(forKey: "last_connected_name")
+        }
+        defaults.synchronize()
+        print("[IdoSmartManager] markDeviceBound: mac='\(macAddress)', bound=\(bound), candidates=\(candidates)")
     }
 
     func updateMetrics() {
@@ -283,14 +316,17 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
     }
 
     func forceUnbindAndReset() {
-        let mac = currentConnectedModel?.macAddress ?? UserDefaults.standard.string(forKey: "last_connected_mac") ?? ""
+        let mac = currentConnectedModel?.macAddress ?? UserDefaults.standard.string(forKey: "last_connected_mac") ?? sdk.device.macAddressFull
         stopPeriodicSync()
         isBindingInProgress = false
         autoReconnectTimer?.invalidate()
         autoReconnectTimer = nil
 
+        markDeviceBound(macAddress: mac, bound: false)
+        UserDefaults.standard.set(false, forKey: "is_any_device_bound")
+        UserDefaults.standard.synchronize()
+
         if !mac.isEmpty {
-            markDeviceBound(macAddress: mac, bound: false)
             sdk.cmd.unbind(macAddress: mac, isForceRemove: true) { [weak self] _ in
                 DispatchQueue.main.async {
                     self?.disconnect()
@@ -304,13 +340,19 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
     }
 
     func bindDeviceIfNeeded(force: Bool = false) {
-        guard let model = currentConnectedModel, let mac = model.macAddress, !mac.isEmpty else {
+        let actualMac = currentConnectedModel?.macAddress ?? (!sdk.device.macAddressFull.isEmpty ? sdk.device.macAddressFull : currentDeviceUUID)
+        guard !actualMac.isEmpty else {
+            print("[IdoSmartManager] bindDeviceIfNeeded: MAC is empty, aborting")
             return
         }
 
-        if isBindingInProgress { return }
+        if isBindingInProgress {
+            print("[IdoSmartManager] bindDeviceIfNeeded: binding already in progress")
+            return
+        }
 
-        if !force && isDeviceBound(macAddress: mac) {
+        if !force && isDeviceBound(macAddress: actualMac) {
+            print("[IdoSmartManager] Device is already bound! Activating watch sensors directly...")
             statusMessage = "الساعة مقترنة مسبقاً! جاري تنشيط الحساسات... ✅"
             activateWatch()
             return
@@ -327,33 +369,41 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
             guard let self = self else { return }
             self.isBindingInProgress = false
             DispatchQueue.main.async {
+                let macToUse = self.currentConnectedModel?.macAddress ?? (!sdk.device.macAddressFull.isEmpty ? sdk.device.macAddressFull : actualMac)
+                print("[IdoSmartManager] Bind completion status: \(status.rawValue)")
                 switch status {
                 case .successful, .binded:
-                    self.markDeviceBound(macAddress: mac, bound: true)
-                    sdk.cmd.appMarkBindResult(success: true)
-                    self.statusMessage = "تم الاقتران بنجاح! ✅ جاري تفعيل الحساسات..."
+                    self.markDeviceBound(macAddress: macToUse, bound: true)
+                    self.statusMessage = "تم الاقتران بنجاح! ✅ جاري تفعيل شاشة وحساسات الساعة..."
                     self.activateWatch()
 
                 case .needConfirmByApp, .agreeDeleteDeviceData:
-                    _ = Cmds.sendBindResult(isSuccess: true).send { [weak self] rs in
-                        if case .success = rs {
-                            sdk.cmd.appMarkBindResult(success: true)
-                            self?.markDeviceBound(macAddress: mac, bound: true)
-                            self?.statusMessage = "تم تأكيد الاقتران بنجاح! ✅"
-                            self?.activateWatch()
-                        } else {
-                            sdk.cmd.appMarkBindResult(success: false)
-                            self?.markDeviceBound(macAddress: mac, bound: false)
-                            self?.statusMessage = "فشل تأكيد الاقتران"
+                    self.statusMessage = "جارٍ تأكيد الاقتران من التطبيق... ⏳"
+                    // Official IDO demo: wait 1.0s delay before sending Cmds.sendBindResult
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        _ = Cmds.sendBindResult(isSuccess: true).send { [weak self] rs in
+                            guard let self = self else { return }
+                            if case .success = rs {
+                                print("[IdoSmartManager] sendBindResult SUCCESS")
+                                sdk.cmd.appMarkBindResult(success: true)
+                                self.markDeviceBound(macAddress: macToUse, bound: true)
+                                self.statusMessage = "تم تأكيد الاقتران بنجاح! ✅ جاري تفعيل الشاشة والحساسات..."
+                                self.activateWatch()
+                            } else {
+                                print("[IdoSmartManager] sendBindResult FAILURE")
+                                sdk.cmd.appMarkBindResult(success: false)
+                                self.markDeviceBound(macAddress: macToUse, bound: false)
+                                self.statusMessage = "فشل تأكيد الاقتران"
+                            }
                         }
                     }
 
                 case .refusedBind:
-                    self.markDeviceBound(macAddress: mac, bound: false)
+                    self.markDeviceBound(macAddress: macToUse, bound: false)
                     self.statusMessage = "تم رفض الاقتران من الساعة أو انتهت المهلة ❌"
 
                 case .failed, .timeout, .canceled:
-                    self.markDeviceBound(macAddress: mac, bound: false)
+                    self.markDeviceBound(macAddress: macToUse, bound: false)
                     self.statusMessage = "فشل الاقتران بالساعة. أعد المحاولة 🔄"
 
                 default:
@@ -365,100 +415,135 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
 
     // MARK: - Watch Activation & Sensor Control
     func activateWatch() {
-        guard isConnected else { return }
-        if isActivating { return }
+        guard isConnected else {
+            print("[IdoSmartManager] Cannot activate watch: not connected")
+            return
+        }
+        if isActivating {
+            print("[IdoSmartManager] activateWatch already in progress")
+            return
+        }
         isActivating = true
         isActivated = true
         statusMessage = "جارٍ تنشيط شاشة وحساسات الساعة... ⚡"
 
-        // Step 1: Synchronize Date & Time (crucial for protocol V3 timestamping)
-        syncDateTime { [weak self] _ in
+        // Safety timeout so isActivating resets even if device response is slow
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6.0) { [weak self] in
+            self?.isActivating = false
+        }
+
+        // Sequence 1 (0.0s): Synchronize Date & Time (crucial for protocol V3 timestamping & watch face)
+        syncDateTime()
+
+        // Sequence 2 (0.4s): Set User Info (required for calorie & health calculations)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            let user = IDOUserInfoPramModel(year: 1995, monuth: 1, day: 1, heigh: 175, weigh: 7000, gender: 1)
+            _ = Cmds.setUserInfo(user).send { res in
+                print("[IdoSmartManager] setUserInfo result: \(res)")
+            }
+        }
+
+        // Sequence 3 (0.8s): Enable Raise-to-Wake Gesture (turns on screen when wrist is raised)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            let gesture = IDOUpHandGestureParamModel(onOff: 1, showSecond: 5, hasTimeRange: 0, startHour: 0, startMinute: 0, endHour: 23, endMinute: 59)
+            _ = Cmds.setUpHandGesture(gesture).send { res in
+                print("[IdoSmartManager] setUpHandGesture result: \(res)")
+            }
+        }
+
+        // Sequence 4 (1.2s): Set Screen Brightness to activate screen display immediately
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            let brightness = IDOScreenBrightnessModel(
+                level: 80,
+                opera: 1,
+                mode: 0,
+                autoAdjustNight: 0,
+                startHour: 0,
+                startMinute: 0,
+                endHour: 23,
+                endMinute: 59,
+                nightLevel: 30,
+                showInterval: 0
+            )
+            _ = Cmds.setScreenBrightness(brightness).send { res in
+                print("[IdoSmartManager] setScreenBrightness result: \(res)")
+            }
+        }
+
+        // Sequence 5 (1.7s): Configure Continuous 24/7 Smart Heart Rate monitoring (interval = 1 minute)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.7) {
+            let smartHr = IDOHeartRateModeSmartParamModel(
+                mode: 1,
+                notifyFlag: 1,
+                highHeartMode: 0,
+                lowHeartMode: 0,
+                highHeartValue: 160,
+                lowHeartValue: 50,
+                startHour: 0,
+                startMinute: 0,
+                endHour: 23,
+                endMinute: 59,
+                measurementInterval: 1
+            )
+            _ = Cmds.setHeartRateModeSmart(smartHr).send { res in
+                print("[IdoSmartManager] setHeartRateModeSmart completed: \(res)")
+            }
+
+            // Also configure standard continuous HR (mode: 2 = continuous 5s)
+            let stdHr = IDOHeartRateModeParamModel(
+                mode: 2,
+                hasTimeRange: 0,
+                startHour: 0,
+                startMinute: 0,
+                endHour: 23,
+                endMinute: 59,
+                measurementInterval: 1
+            )
+            _ = Cmds.setHeartRateMode(stdHr).send { res in
+                print("[IdoSmartManager] setHeartRateMode completed: \(res)")
+            }
+        }
+
+        // Sequence 6 (2.3s): Enable SpO2 continuous monitoring
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.3) {
+            let spo2Param = IDOSpo2SwitchParamModel(
+                onOff: 1,
+                startHour: 0,
+                startMinute: 0,
+                endHour: 23,
+                endMinute: 59,
+                lowSpo2OnOff: 0,
+                lowSpo2Value: 90,
+                notifyFlag: 1,
+                measurementInterval: 15
+            )
+            _ = Cmds.setSpo2Switch(spo2Param).send { res in
+                print("[IdoSmartManager] setSpo2Switch completed: \(res)")
+            }
+        }
+
+        // Sequence 7 (2.8s): Trigger find device briefly to wake the screen & haptic motor
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.8) {
+            _ = Cmds.findDeviceStart().send { _ in
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                    _ = Cmds.findDeviceStop().send { _ in }
+                }
+            }
+        }
+
+        // Sequence 8 (3.6s): Start live measurement stream & initial data sync
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.6) { [weak self] in
             guard let self = self else { return }
+            self.isActivating = false
+            self.statusMessage = "الساعة نشطة ومتصلة! المراقبة المستمرة لنبض القلب تعمل الآن ✅"
 
-            // Step 2: Set User Info
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                let user = IDOUserInfoPramModel(year: 1995, monuth: 1, day: 1, heigh: 175, weigh: 7000, gender: 1)
-                _ = Cmds.setUserInfo(user).send { _ in }
+            // Start active PPG heart rate measurement session
+            IDOMeasureManager.shared.startMeasure(type: .heartRate) { started in
+                print("[IdoSmartManager] IDOMeasureManager.startMeasure(heartRate) result: \(started)")
             }
 
-            // Step 3: Enable Raise-to-Wake Gesture
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                let gesture = IDOUpHandGestureParamModel(onOff: 1, showSecond: 5, hasTimeRange: 0, startHour: 0, startMinute: 0, endHour: 23, endMinute: 59)
-                _ = Cmds.setUpHandGesture(gesture).send { _ in }
-            }
-
-            // Step 4: Configure Continuous 24/7 Smart Heart Rate monitoring (interval = 1 minute)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-                let smartHr = IDOHeartRateModeSmartParamModel(
-                    mode: 1,
-                    notifyFlag: 1,
-                    highHeartMode: 0,
-                    lowHeartMode: 0,
-                    highHeartValue: 160,
-                    lowHeartValue: 50,
-                    startHour: 0,
-                    startMinute: 0,
-                    endHour: 23,
-                    endMinute: 59,
-                    measurementInterval: 1
-                )
-                _ = Cmds.setHeartRateModeSmart(smartHr).send { res in
-                    print("[IdoSmartManager] setHeartRateModeSmart completed: \(res)")
-                }
-
-                // Also configure standard continuous HR (mode: 2 = continuous 5s)
-                let stdHr = IDOHeartRateModeParamModel(
-                    mode: 2,
-                    hasTimeRange: 0,
-                    startHour: 0,
-                    startMinute: 0,
-                    endHour: 23,
-                    endMinute: 59,
-                    measurementInterval: 1
-                )
-                _ = Cmds.setHeartRateMode(stdHr).send { res in
-                    print("[IdoSmartManager] setHeartRateMode completed: \(res)")
-                }
-            }
-
-            // Step 5: Enable SpO2 continuous monitoring
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
-                let spo2Param = IDOSpo2SwitchParamModel(
-                    onOff: 1,
-                    startHour: 0,
-                    startMinute: 0,
-                    endHour: 23,
-                    endMinute: 59,
-                    lowSpo2OnOff: 0,
-                    lowSpo2Value: 90,
-                    notifyFlag: 1,
-                    measurementInterval: 15
-                )
-                _ = Cmds.setSpo2Switch(spo2Param).send { _ in }
-            }
-
-            // Step 6: Wake screen briefly
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.3) {
-                _ = Cmds.findDeviceStart().send { _ in
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                        _ = Cmds.findDeviceStop().send { _ in }
-                    }
-                }
-            }
-
-            // Step 7: Start live measurement stream & initial data sync
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-                self.isActivating = false
-                self.statusMessage = "الساعة متصلة والمراقبة المستمرة لنبض القلب نشطة الآن ✅"
-
-                // Start active PPG heart rate measurement session
-                IDOMeasureManager.shared.startMeasure(type: .heartRate) { started in
-                    print("[IdoSmartManager] IDOMeasureManager.startMeasure(heartRate) result: \(started)")
-                }
-
-                self.requestLiveMetrics()
-                self.startPeriodicSync()
-            }
+            self.requestLiveMetrics()
+            self.startPeriodicSync()
         }
     }
 
