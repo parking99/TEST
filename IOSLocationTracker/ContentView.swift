@@ -26,9 +26,15 @@ struct ContentView: View {
         }
         .background(Color(hex: "F0F4F8").ignoresSafeArea())
         .environment(\.layoutDirection, .rightToLeft)
+        .onAppear {
+            watchManager.tryAutoConnect()
+        }
         .onReceive(timer) { _ in
             if watchManager.isConnected {
+                watchManager.requestLiveMetrics()
                 sendDataToGoogleSheet(isSos: false, isAuto: true)
+            } else {
+                watchManager.tryAutoConnect()
             }
         }
         .alert(isPresented: $showingAlert) {
@@ -147,6 +153,18 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
                     .background(Color(hex: "0284C7"))
+                    .cornerRadius(8)
+            }
+
+            Button(action: {
+                watchManager.requestLiveMetrics()
+            }) {
+                Text("قراءة وتحديث نبض القلب فوراً 💓")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(Color(hex: "E11D48"))
                     .cornerRadius(8)
             }
 

@@ -13,6 +13,14 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         return true
     }
 
+    func applicationDidEnterBackground(_ application: UIApplication) {
+        IdoSmartManager.shared.beginBackgroundKeepAlive()
+    }
+
+    func applicationWillEnterForeground(_ application: UIApplication) {
+        IdoSmartManager.shared.endBackgroundKeepAlive()
+    }
+
     private func initFlutterEngine() {
         flutterEngine = FlutterEngine(name: "io.flutter", project: nil)
         flutterEngine?.run(withEntrypoint: nil)
