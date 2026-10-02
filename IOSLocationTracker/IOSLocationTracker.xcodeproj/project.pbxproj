@@ -1,52 +1,239 @@
 // !$*UTF8*$!
 {
- archiveVersion = 1;
- classes = {};
- objectVersion = 56;
- objects = {
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
 
 /* Begin PBXBuildFile section */
- A001 /* IOSLocationTrackerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A101; };
- A002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A102; };
- A003 /* LocationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A103; };
+		A001 /* IOSLocationTrackerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A101; };
+		A002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A102; };
+		A003 /* LocationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A103; };
+		A004 /* IdoSmartManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A106; };
+		A005 /* BloodPressureAlgorithm.swift in Sources */ = {isa = PBXBuildFile; fileRef = A107; };
+		A006 /* GoogleSheetSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A108; };
+		A007 /* CoreBluetooth.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A109; };
+		A008 /* CoreLocation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A110; };
 /* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
- A101 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSLocationTrackerApp.swift; sourceTree = "<group>"; };
- A102 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
- A103 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationManager.swift; sourceTree = "<group>"; };
- A104 = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
- A105 = {isa = PBXFileReference; explicitFileType = wrapper.application; path = IOSLocationTracker.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A101 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSLocationTrackerApp.swift; sourceTree = "<group>"; };
+		A102 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		A103 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationManager.swift; sourceTree = "<group>"; };
+		A104 = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A105 = {isa = PBXFileReference; explicitFileType = wrapper.application; path = IOSLocationTracker.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A106 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdoSmartManager.swift; sourceTree = "<group>"; };
+		A107 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloodPressureAlgorithm.swift; sourceTree = "<group>"; };
+		A108 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleSheetSyncManager.swift; sourceTree = "<group>"; };
+		A109 = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreBluetooth.framework; path = System/Library/Frameworks/CoreBluetooth.framework; sourceTree = SDKROOT; };
+		A110 = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreLocation.framework; path = System/Library/Frameworks/CoreLocation.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
-/* Begin PBXGroup section */
- A201 = {isa = PBXGroup; children = (A101, A102, A103, A104); name = IOSLocationTracker; sourceTree = "<group>"; };
- A202 = {isa = PBXGroup; children = (A105); name = Products; sourceTree = "<group>"; };
- A203 = {isa = PBXGroup; children = (A201, A202); sourceTree = "<group>"; };
-/* End PBXGroup section */
-/* Begin PBXNativeTarget section */
- A301 = {isa = PBXNativeTarget; buildConfigurationList = A401; buildPhases = (A501, A502, A503); buildRules = (); dependencies = (); name = IOSLocationTracker; productName = IOSLocationTracker; productReference = A105; productType = "com.apple.product-type.application"; };
-/* End PBXNativeTarget section */
-/* Begin PBXProject section */
- A601 = {isa = PBXProject; attributes = { LastUpgradeCheck = 1600; TargetAttributes = { A301 = { CreatedOnToolsVersion = 16.0; }; }; }; buildConfigurationList = A402; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base); mainGroup = A203; productRefGroup = A202; projectDirPath = ""; projectRoot = ""; targets = (A301); };
-/* End PBXProject section */
-/* Begin PBXResourcesBuildPhase section */
- A501 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
-/* End PBXResourcesBuildPhase section */
-/* Begin PBXSourcesBuildPhase section */
- A502 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A001, A002, A003); runOnlyForDeploymentPostprocessing = 0; };
-/* End PBXSourcesBuildPhase section */
+
 /* Begin PBXFrameworksBuildPhase section */
- A503 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		A503 = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A007 /* CoreBluetooth.framework in Frameworks */,
+				A008 /* CoreLocation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A201 = {
+			isa = PBXGroup;
+			children = (
+				A101,
+				A102,
+				A103,
+				A106,
+				A107,
+				A108,
+				A104,
+			);
+			name = IOSLocationTracker;
+			sourceTree = "<group>";
+		};
+		A202 = {
+			isa = PBXGroup;
+			children = (
+				A105,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A204 = {
+			isa = PBXGroup;
+			children = (
+				A109,
+				A110,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		A203 = {
+			isa = PBXGroup;
+			children = (
+				A201,
+				A204,
+				A202,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A301 = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A401;
+			buildPhases = (
+				A501,
+				A502,
+				A503,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = IOSLocationTracker;
+			productName = IOSLocationTracker;
+			productReference = A105;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A601 = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					A301 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+				};
+			};
+			buildConfigurationList = A402;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A203;
+			productRefGroup = A202;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A301,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A501 = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A502 = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A001 /* IOSLocationTrackerApp.swift in Sources */,
+				A002 /* ContentView.swift in Sources */,
+				A003 /* LocationManager.swift in Sources */,
+				A004 /* IdoSmartManager.swift in Sources */,
+				A005 /* BloodPressureAlgorithm.swift in Sources */,
+				A006 /* GoogleSheetSyncManager.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
 /* Begin XCBuildConfiguration section */
- A701 = {isa = XCBuildConfiguration; buildSettings = { CLANG_ENABLE_MODULES = YES; IPHONEOS_DEPLOYMENT_TARGET = 15.0; SDKROOT = iphoneos; }; name = Debug; };
- A702 = {isa = XCBuildConfiguration; buildSettings = { CLANG_ENABLE_MODULES = YES; IPHONEOS_DEPLOYMENT_TARGET = 15.0; SDKROOT = iphoneos; }; name = Release; };
- A703 = {isa = XCBuildConfiguration; buildSettings = { ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 15.0; MARKETING_VERSION = 1.0; PRODUCT_BUNDLE_IDENTIFIER = com.example.IOSLocationTracker; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Debug; };
- A704 = {isa = XCBuildConfiguration; buildSettings = { ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 15.0; MARKETING_VERSION = 1.0; PRODUCT_BUNDLE_IDENTIFIER = com.example.IOSLocationTracker; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Release; };
+		A701 = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				SDKROOT = iphoneos;
+			};
+			name = Debug;
+		};
+		A702 = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				SDKROOT = iphoneos;
+			};
+			name = Release;
+		};
+		A703 = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.securitypass;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A704 = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.securitypass;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
+
 /* Begin XCConfigurationList section */
- A401 = {isa = XCConfigurationList; buildConfigurations = (A703, A704); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
- A402 = {isa = XCConfigurationList; buildConfigurations = (A701, A702); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		A401 = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A703,
+				A704,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A402 = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A701,
+				A702,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
- };
- rootObject = A601;
+	};
+	rootObject = A601;
 }

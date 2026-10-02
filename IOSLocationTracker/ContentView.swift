@@ -1,179 +1,330 @@
 import SwiftUI
 
 struct ContentView: View {
-    @StateObject private var tracker = LocationManager()
-    @State private var showAdvancedSettings = false
+    @StateObject private var watchManager = IdoSmartManager.shared
+    @StateObject private var locationManager = LocationManager()
 
-    // Color definitions matching the Android GBS theme
-    private let darkNavy = Color(red: 13/255, green: 27/255, blue: 42/255)
-    private let cardNavy = Color(red: 27/255, green: 38/255, blue: 59/255)
-    private let accentBlue = Color(red: 65/255, green: 90/255, blue: 119/255)
-    private let textGray = Color(red: 119/255, green: 141/255, blue: 169/255)
+    @State private var empId: String = "WATCH_001"
+    @State private var sheetSyncStatusText: String = "المزامنة التلقائية مع Google Sheets: مفعلة"
+    @State private var showingAlert: Bool = false
+    @State private var alertMessage: String = ""
+
+    // Periodic 30s auto-sync timer
+    let timer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        ZStack {
-            // Background
-            darkNavy.ignoresSafeArea()
+        ScrollView {
+            VStack(spacing: 12) {
+                // Header Title
+                Text("نظام مراقبة السوار الذكي وقوقل شيت")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(Color(hex: "1E293B"))
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 8)
 
-            VStack(spacing: 20) {
-                Spacer().frame(height: 10)
+                // Connection Status Badge
+                Text(watchManager.statusMessage)
+                    .font(.system(size: 13))
+                    .foregroundColor(Color(hex: "64748B"))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
 
-                // Header
-                HStack(spacing: 10) {
-                    Image(systemName: "bell.fill")
-                        .foregroundColor(tracker.isAlarmActive ? .red : accentBlue)
-                        .font(.title2)
-                    
-                    Text("GBS SYSTEM")
-                        .font(.title2)
-                        .fontWeight(.bold)
-                        .foregroundColor(.white)
-                }
+                // Employee ID Configuration Card
+                HStack {
+                    Text("المعرف الوظيفي:")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(Color(hex: "334155"))
 
-                // Status Badge
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(tracker.isTracking ? Color.green : Color.gray)
-                        .frame(width: 8, height: 8)
-                    
-                    Text(tracker.statusMessage)
-                        .font(.subheadline)
-                        .foregroundColor(tracker.isAlarmActive ? .red : .white)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(tracker.isAlarmActive ? Color.red.opacity(0.2) : cardNavy)
-                .cornerRadius(20)
-
-                // Device Identity TextField
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Device Identity")
-                        .font(.footnote)
-                        .foregroundColor(textGray)
-                    
-                    TextField("", text: $tracker.deviceId)
-                        .textFieldStyle(PlainTextFieldStyle())
-                        .foregroundColor(.white)
-                        .padding(12)
-                        .background(cardNavy)
-                        .cornerRadius(8)
+                    TextField("مثال: WATCH_001", text: $empId)
+                        .font(.system(size: 14))
+                        .foregroundColor(Color(hex: "1E293B"))
+                        .padding(8)
+                        .background(Color(hex: "F8FAFC"))
+                        .cornerRadius(6)
                         .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(accentBlue, lineWidth: 1)
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color(hex: "E2E8F0"), lineWidth: 1)
                         )
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
                 }
-                .padding(.horizontal)
+                .padding(10)
+                .background(Color.white)
+                .cornerRadius(10)
+                .shadow(color: Color.black.opacity(0.04), radius: 3, x: 0, y: 1)
 
-                // Monitoring Card
-                VStack(spacing: 12) {
-                    InfoRow(label: "Current Lat", value: String(format: "%.5f", tracker.latitude))
-                    InfoRow(label: "Current Lng", value: String(format: "%.5f", tracker.longitude))
-                    InfoRow(label: "Current Speed", value: String(format: "%.1f km/h", tracker.speed))
-                    
-                    Divider().background(accentBlue)
-                    
-                    InfoRow(label: "Last Sync", value: tracker.lastSync)
-                }
-                .padding(20)
-                .background(cardNavy)
-                .cornerRadius(16)
-                .padding(.horizontal)
-
-                if let error = tracker.errorMessage {
-                    Text(error)
-                        .font(.footnote)
-                        .foregroundColor(.red)
-                        .padding(.horizontal)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                // Vital Signs Grid
+                // Row 1: Heart Rate & SpO2
+                HStack(spacing: 8) {
+                    MetricCard(
+                        title: "❤️ نبض القلب",
+                        value: watchManager.currentHeartRate > 0 ? "\(watchManager.currentHeartRate) bpm" : "-- bpm",
+                        color: Color(hex: "DC2626")
+                    )
+                    MetricCard(
+                        title: "💨 نسبة الأكسجين",
+                        value: watchManager.currentSpo2 > 0 ? "\(watchManager.currentSpo2) %" : "-- %",
+                        color: Color(hex: "0284C7")
+                    )
                 }
 
-                Spacer()
+                // Row 2: Blood Pressure & Temperature
+                HStack(spacing: 8) {
+                    MetricCard(
+                        title: "🩺 ضغط الدم (خوارزمية)",
+                        value: "\(watchManager.currentBloodPressure) mmHg",
+                        color: Color(hex: "7C3AED")
+                    )
+                    MetricCard(
+                        title: "🌡️ حرارة الجسم",
+                        value: String(format: "%.1f °C", watchManager.currentTemperature),
+                        color: Color(hex: "EA580C")
+                    )
+                }
 
-                // Collapsible Advanced Settings (URL)
-                VStack {
+                // Row 3: Steps & Battery
+                HStack(spacing: 8) {
+                    MetricCard(
+                        title: "👟 الخطوات",
+                        value: watchManager.currentSteps > 0 ? "\(watchManager.currentSteps) خطوة" : "-- خطوة",
+                        color: Color(hex: "16A34A")
+                    )
+                    MetricCard(
+                        title: "🔋 البطارية",
+                        value: watchManager.currentBattery > 0 ? "\(watchManager.currentBattery) %" : "-- %",
+                        color: Color(hex: "D97706")
+                    )
+                }
+
+                // Action Buttons
+                VStack(spacing: 8) {
+                    // Scan / Stop Scan Button
                     Button(action: {
-                        withAnimation {
-                            showAdvancedSettings.toggle()
+                        if watchManager.isScanning {
+                            watchManager.stopScan()
+                        } else {
+                            watchManager.startScan()
                         }
                     }) {
-                        HStack {
-                            Text("Advanced Settings")
-                                .font(.footnote)
-                                .foregroundColor(textGray)
-                            Image(systemName: showAdvancedSettings ? "chevron.up" : "chevron.down")
-                                .font(.caption2)
-                                .foregroundColor(textGray)
-                        }
+                        Text(watchManager.isScanning ? "إيقاف البحث" : "البحث عن السوار / الساعة عبر Bluetooth")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(Color(hex: "3B82F6"))
+                            .cornerRadius(8)
                     }
-                    
-                    if showAdvancedSettings {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Google Apps Script URL")
-                                .font(.caption2)
-                                .foregroundColor(textGray)
-                            
-                            TextField("", text: $tracker.scriptURL)
-                                .textFieldStyle(PlainTextFieldStyle())
-                                .foregroundColor(.white)
-                                .padding(10)
-                                .background(cardNavy)
-                                .cornerRadius(8)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-                                .keyboardType(.URL)
-                        }
-                        .padding()
-                        .background(cardNavy.opacity(0.5))
-                        .cornerRadius(8)
-                        .padding(.horizontal)
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                    }
-                }
 
-                // Large Action Toggle Button
-                Button(action: {
-                    tracker.toggleTracking()
-                }) {
-                    Text(tracker.isTracking ? "STOP MONITORING" : "START TRACKING")
-                        .font(.headline)
-                        .fontWeight(.bold)
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 64)
-                        .background(tracker.isTracking ? Color.red : accentBlue)
-                        .cornerRadius(16)
+                    // Activate Watch Button
+                    Button(action: {
+                        watchManager.activateWatch()
+                    }) {
+                        Text("تشغيل / تنشيط شاشة وحساسات الساعة ⚡")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(Color(hex: "0284C7"))
+                            .cornerRadius(8)
+                    }
+
+                    // Unbind / Reset Pairing Button
+                    Button(action: {
+                        watchManager.forceUnbindAndReset()
+                    }) {
+                        Text("إلغاء اقتران الساعة وتصفير الربط 🔄")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(Color(hex: "64748B"))
+                            .cornerRadius(8)
+                    }
+
+                    // Manual Google Sheet Sync Button
+                    Button(action: {
+                        sendDataToGoogleSheet(isSos: false, isAuto: false)
+                    }) {
+                        Text("إرسال البيانات إلى السيرفر و Google Sheets 📊")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(Color(hex: "16A34A"))
+                            .cornerRadius(8)
+                    }
+
+                    // Emergency SOS Button
+                    Button(action: {
+                        sendDataToGoogleSheet(isSos: true, isAuto: false)
+                    }) {
+                        Text("🚨 إرسال نداء استغاثة طارئ (SOS) 🚨")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(Color(hex: "DC2626"))
+                            .cornerRadius(8)
+                    }
                 }
-                .padding(.horizontal)
-                .padding(.bottom, 20)
+                .padding(.top, 4)
+
+                // Sync Status Text
+                Text(sheetSyncStatusText)
+                    .font(.system(size: 12))
+                    .foregroundColor(Color(hex: "475569"))
+                    .multilineTextAlignment(.center)
+                    .padding(.vertical, 4)
+
+                // Discovered Devices Header
+                HStack {
+                    Text("الأجهزة المكتشفة بالقرب منك (انقر للاتصال):")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(Color(hex: "334155"))
+                    Spacer()
+                }
+                .padding(.top, 4)
+
+                // Devices List
+                if watchManager.discoveredDevices.isEmpty {
+                    Text("لم يتم العثور على أجهزة بعد. اضغط على زر البحث أعلاه.")
+                        .font(.system(size: 12))
+                        .foregroundColor(Color(hex: "94A3B8"))
+                        .padding(.vertical, 16)
+                } else {
+                    VStack(spacing: 6) {
+                        ForEach(watchManager.discoveredDevices) { device in
+                            Button(action: {
+                                watchManager.connect(device: device)
+                            }) {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("⌚ \(device.name)")
+                                            .font(.system(size: 13, weight: .bold))
+                                            .foregroundColor(Color(hex: "1E293B"))
+                                        Text("UUID: \(device.id.uuidString.prefix(18))... (الإشارة: \(device.rssi) dBm)")
+                                            .font(.system(size: 11))
+                                            .foregroundColor(Color(hex: "64748B"))
+                                    }
+                                    Spacer()
+                                    Image(systemName: "chevron.left")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(Color(hex: "94A3B8"))
+                                }
+                                .padding(10)
+                                .background(Color.white)
+                                .cornerRadius(8)
+                                .shadow(color: Color.black.opacity(0.03), radius: 2, x: 0, y: 1)
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(16)
+        }
+        .background(Color(hex: "F0F4F8").ignoresSafeArea())
+        .environment(\.layoutDirection, .rightToLeft)
+        .onReceive(timer) { _ in
+            if watchManager.isConnected {
+                sendDataToGoogleSheet(isSos: false, isAuto: true)
             }
         }
-        .onAppear {
-            tracker.requestPermissions()
+        .alert(isPresented: $showingAlert) {
+            Alert(title: Text("تنبيه"), message: Text(alertMessage), dismissButton: .default(Text("حسناً")))
+        }
+    }
+
+    private func sendDataToGoogleSheet(isSos: Bool, isAuto: Bool) {
+        if isSos {
+            sheetSyncStatusText = "🚨 جارٍ إرسال نداء SOS إلى Google Sheets..."
+        } else if !isAuto {
+            sheetSyncStatusText = "جارٍ إرسال البيانات إلى Google Sheets..."
+        }
+
+        GoogleSheetSyncManager.shared.sendData(
+            empId: empId,
+            latitude: locationManager.latitude,
+            longitude: locationManager.longitude,
+            heartRate: watchManager.currentHeartRate,
+            spo2: watchManager.currentSpo2,
+            bodyTemp: watchManager.currentTemperature,
+            battery: watchManager.currentBattery,
+            isSos: isSos,
+            deviceIdentifier: watchManager.currentDeviceUUID,
+            bloodPressure: watchManager.currentBloodPressure
+        ) { result in
+            let timeStr = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+            switch result {
+            case .success:
+                if isSos {
+                    sheetSyncStatusText = "🚨 تم إرسال نداء SOS بنجاح! \(timeStr)"
+                    alertMessage = "🚨 تم إرسال نداء الاستغاثة SOS إلى لوحة المراقبة بنجاح!"
+                    showingAlert = true
+                } else {
+                    sheetSyncStatusText = "آخر مزامنة ناجحة: \(timeStr) ✅"
+                    if !isAuto {
+                        alertMessage = "تم إرسال بيانات السوار والضغط إلى Google Sheets بنجاح! 📊"
+                        showingAlert = true
+                    }
+                }
+            case .failure(let error):
+                sheetSyncStatusText = "فشل الإرسال إلى Google Sheets: \(error.localizedDescription)"
+                if !isAuto {
+                    alertMessage = "خطأ في الاتصال بقوقل شيت: \(error.localizedDescription)"
+                    showingAlert = true
+                }
+            }
         }
     }
 }
 
-private struct InfoRow: View {
-    let label: String
+// MARK: - Reusable Metric Card View
+struct MetricCard: View {
+    let title: String
     let value: String
-    
+    let color: Color
+
     var body: some View {
-        HStack {
-            Text(label)
-                .foregroundColor(Color(red: 119/255, green: 141/255, blue: 169/255))
-                .font(.subheadline)
-            Spacer()
+        VStack(spacing: 4) {
+            Text(title)
+                .font(.system(size: 12))
+                .foregroundColor(Color(hex: "64748B"))
+
             Text(value)
-                .foregroundColor(.white)
-                .font(.subheadline)
-                .fontWeight(.medium)
-                .monospacedDigit()
+                .font(.system(size: 18, weight: .bold))
+                .foregroundColor(color)
         }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+        .padding(.horizontal, 6)
+        .background(Color.white)
+        .cornerRadius(10)
+        .shadow(color: Color.black.opacity(0.04), radius: 3, x: 0, y: 1)
     }
 }
 
-#Preview {
-    ContentView()
+// MARK: - Color Hex Extension
+extension Color {
+    init(hex: String) {
+        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var int: UInt64 = 0
+        Scanner(string: hex).scanHexInt64(&int)
+        let a, r, g, b: UInt64
+        switch hex.count {
+        case 3: // RGB (12-bit)
+            (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
+        case 6: // RGB (24-bit)
+            (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
+        case 8: // ARGB (32-bit)
+            (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
+        default:
+            (a, r, g, b) = (255, 0, 0, 0)
+        }
+        self.init(
+            .sRGB,
+            red: Double(r) / 255,
+            green: Double(g) / 255,
+            blue:  Double(b) / 255,
+            opacity: Double(a) / 255
+        )
+    }
 }
