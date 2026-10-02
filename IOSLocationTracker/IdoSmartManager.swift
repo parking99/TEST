@@ -222,11 +222,17 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                     self.activateWatch()
 
                 case .needConfirmByApp, .agreeDeleteDeviceData:
-                    _ = Cmds.sendBindResult(true) { _, _ in
-                        sdk.cmd.appMarkBindResult(success: true)
-                        self.markDeviceBound(macAddress: mac, bound: true)
-                        self.statusMessage = "تم تأكيد الاقتران بنجاح! ✅"
-                        self.activateWatch()
+                    _ = Cmds.sendBindResult(isSuccess: true).send { [weak self] rs in
+                        if case .success = rs {
+                            sdk.cmd.appMarkBindResult(success: true)
+                            self?.markDeviceBound(macAddress: mac, bound: true)
+                            self?.statusMessage = "تم تأكيد الاقتران بنجاح! ✅"
+                            self?.activateWatch()
+                        } else {
+                            sdk.cmd.appMarkBindResult(success: false)
+                            self?.markDeviceBound(macAddress: mac, bound: false)
+                            self?.statusMessage = "فشل تأكيد الاقتران"
+                        }
                     }
 
                 case .refusedBind:
@@ -256,33 +262,33 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
 
             // Step 2: Set User Info
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                let user = IDOUserInfoPramModel(year: 1995, monuth: 1, day: 1, heigh: 175, weigh: 70, gender: 1)
-                _ = Cmds.setUserInfo(user) { _, _ in }
+                let user = IDOUserInfoPramModel(year: 1995, monuth: 1, day: 1, heigh: 175, weigh: 7000, gender: 1)
+                _ = Cmds.setUserInfo(user).send { _ in }
             }
 
             // Step 3: Enable Raise-to-Wake Gesture
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
                 let gesture = IDOUpHandGestureParamModel(onOff: 1, showSecond: 5, hasTimeRange: 0, startHour: 0, startMinute: 0, endHour: 23, endMinute: 59)
-                _ = Cmds.setUpHandGesture(gesture) { _, _ in }
+                _ = Cmds.setUpHandGesture(gesture).send { _ in }
             }
 
             // Step 4: Configure Continuous 24/7 Smart Heart Rate monitoring
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
                 let hrParam = IDOHeartRateModeSmartParamModel(mode: 1, notifyFlag: 1, highHeartMode: 0, lowHeartMode: 0, highHeartValue: 160, lowHeartValue: 50, startHour: 0, startMinute: 0, endHour: 23, endMinute: 59)
-                _ = Cmds.setHeartRateModeSmart(hrParam) { _, _ in }
+                _ = Cmds.setHeartRateModeSmart(hrParam).send { _ in }
             }
 
             // Step 5: Enable SpO2 continuous monitoring
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                 let spo2Param = IDOSpo2SwitchParamModel(onOff: 1, startHour: 0, startMinute: 0, endHour: 23, endMinute: 59, lowSpo2OnOff: 0, lowSpo2Value: 90, notifyFlag: 1, measurementInterval: 15)
-                _ = Cmds.setSpo2Switch(spo2Param) { _, _ in }
+                _ = Cmds.setSpo2Switch(spo2Param).send { _ in }
             }
 
             // Step 6: Wake screen briefly
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.6) {
-                _ = Cmds.findDeviceStart { _, _ in
+                _ = Cmds.findDeviceStart().send { _ in
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                        _ = Cmds.findDeviceStop { _, _ in }
+                        _ = Cmds.findDeviceStop().send { _ in }
                     }
                 }
             }
@@ -311,8 +317,13 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         let timeZone = TimeZone.current.secondsFromGMT(for: date) / 3600
 
         let dt = IDODateTimeParamModel(year: year, monuth: month, day: day, hour: hour, minute: minute, second: second, week: adjustedWeekday, timeZone: timeZone)
-        _ = Cmds.setDateTime(dt) { err, _ in
-            let ok = err.code == 0
+        _ = Cmds.setDateTime(dt).send { res in
+            let ok: Bool
+            if case .success = res {
+                ok = true
+            } else {
+                ok = false
+            }
             DispatchQueue.main.async {
                 completion?(ok)
             }
@@ -331,8 +342,8 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         }
 
         // Query detailed battery status
-        _ = Cmds.getBatteryInfo { [weak self] err, model in
-            if err.code == 0, let m = model {
+        _ = Cmds.getBatteryInfo().send { [weak self] res in
+            if case .success(let model) = res, let m = model {
                 let b = Int(m.curEnergy)
                 if (1...100).contains(b) {
                     DispatchQueue.main.async {
@@ -435,7 +446,6 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
             switch state.state {
             case .connected:
                 self.isConnected = true
-                let name = self.currentConnectedModel?.name ?? "الساعة الذكية"
                 let mac = self.currentConnectedModel?.macAddress ?? state.macAddress ?? ""
                 let bound = self.isDeviceBound(macAddress: mac)
 
@@ -511,7 +521,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
     }
 
     func listenDeviceNotification(model: IDODeviceNotificationModel) {
-        if let paramStr = model.parameter, let p = Int(paramStr), (35...240).contains(p) {
+        if let p = model.parameter?.intValue, (35...240).contains(p) {
             DispatchQueue.main.async {
                 self.currentHeartRate = p
                 self.updateMetrics()
