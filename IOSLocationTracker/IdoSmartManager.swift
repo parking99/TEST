@@ -161,7 +161,8 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         if let m = currentConnectedModel?.macAddress, !m.isEmpty && !candidates.contains(m) { candidates.append(m) }
         let sdkMac = sdk.device.macAddressFull
         if !sdkMac.isEmpty && !candidates.contains(sdkMac) { candidates.append(sdkMac) }
-        if let sm = sdk.device.macAddress, !sm.isEmpty && !candidates.contains(sm) { candidates.append(sm) }
+        let sm = sdk.device.macAddress
+        if !sm.isEmpty && !candidates.contains(sm) { candidates.append(sm) }
 
         for candidate in candidates {
             defaults.set(bound, forKey: "bind-state-\(candidate)")
