@@ -898,9 +898,9 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
             }
 
             // When device notifies of new heart rate, blood oxygen, or step data
-            let code = model.code
-            if code == 2 || code == 3 || code == 15 || code == 23 {
-                print("[IdoSmartManager] Device notification code=\(code) -> Refreshing health metrics")
+            let type = model.dataType?.intValue ?? 0
+            if type == 2 || type == 3 || type == 15 || type == 23 || type == 64 || type == 65 {
+                print("[IdoSmartManager] Device notification dataType=\(type) -> Refreshing health metrics")
                 self.requestLiveMetrics()
             }
         }
