@@ -1,0 +1,320 @@
+// swift-interface-format-version: 1.0
+// swift-compiler-version: Apple Swift version 6.0.3 effective-5.10 (swiftlang-6.0.3.1.10 clang-1600.0.30.1)
+// swift-module-flags: -target arm64-apple-ios12.0 -enable-objc-interop -enable-library-evolution -swift-version 5 -enforce-exclusivity=checked -O -enable-bare-slash-regex -module-name native_channel
+// swift-module-flags-ignorable: -no-verify-emitted-module-interface
+import CommonCrypto
+import CoreBluetooth
+import Dispatch
+import Flutter
+import Foundation
+import OSLog
+import Swift
+import UIKit
+import UniformTypeIdentifiers
+import ZIPFoundation
+import _Concurrency
+import _StringProcessing
+import _SwiftConcurrencyShims
+import os.log
+@_exported import native_channel
+import os
+@objc public enum BleCoreManagerState : Swift.Int {
+  case unknown = 0
+  case resetting = 1
+  case unsupported = 2
+  case unauthorized = 3
+  case poweredOff = 4
+  case poweredOn = 5
+  public init?(rawValue: Swift.Int)
+  public typealias RawValue = Swift.Int
+  public var rawValue: Swift.Int {
+    get
+  }
+}
+@objc @_inheritsConvenienceInitializers public class IdoActionsPlugin : ObjectiveC.NSObject, Flutter.FlutterPlugin, native_channel.ApiActionsHost, native_channel.IDOActionsOTAManagerDelegate {
+  @objc public static func register(with registrar: any Flutter.FlutterPluginRegistrar)
+  @objc public func startOTADeviceIdentifier(_ deviceIdentifier: Swift.String, filePath: Swift.String, error: Swift.AutoreleasingUnsafeMutablePointer<Flutter.FlutterError?>)
+  @objc public func stopOTAWithError(_ error: Swift.AutoreleasingUnsafeMutablePointer<Flutter.FlutterError?>)
+  @objc public func actionsOTADidComplete()
+  @objc public func actionsOTADidFailWithError(_ error: any Swift.Error)
+  @objc public func actionsOTAProgressDidChange(_ progress: Swift.Float)
+  @objc public func actionsOTADidLog(_ message: Swift.String)
+  @objc override dynamic public init()
+  @objc deinit
+}
+@objc public protocol IDONordicDFUManagerDelegate : ObjectiveC.NSObjectProtocol {
+  @objc func upgradeDidStart()
+  @objc func upgradeDidComplete()
+  @objc func upgradeDidFail(error: any Swift.Error)
+  @objc func upgradeDidCancel()
+  @objc func uploadProgressDidChange(speed: Swift.String, progress: Swift.Float, bytesSent: Swift.Int, imageSize: Swift.Int, timestamp: Foundation.Date)
+  @objc func nativeLog(logMsg: Swift.String)
+}
+@_inheritsConvenienceInitializers @objc public class IDONordicDFUManager : ObjectiveC.NSObject {
+  @objc public static let share: native_channel.IDONordicDFUManager
+  @objc weak public var delegate: (any native_channel.IDONordicDFUManagerDelegate)?
+  @objc public func startDFU(targetIdentifier: Swift.String, from url: Foundation.URL, mtu: Swift.Int)
+  @objc public func stopDFU()
+  @objc override dynamic public init()
+  @objc deinit
+}
+@objc @_inheritsConvenienceInitializers public class IdoNordicPlugin : ObjectiveC.NSObject, Flutter.FlutterPlugin, native_channel.ApiNordicHost, native_channel.IDONordicDFUManagerDelegate {
+  @objc public static func register(with registrar: any Flutter.FlutterPluginRegistrar)
+  @objc public func startDFUDeviceIdentifier(_ deviceIdentifier: Swift.String, filePath: Swift.String, mtu: Foundation.NSNumber, error: Swift.AutoreleasingUnsafeMutablePointer<Flutter.FlutterError?>)
+  @objc public func stopDFUWithError(_ error: Swift.AutoreleasingUnsafeMutablePointer<Flutter.FlutterError?>)
+  @objc public func upgradeDidStart()
+  @objc public func upgradeDidComplete()
+  @objc public func upgradeDidFail(error: any Swift.Error)
+  @objc public func upgradeDidCancel()
+  @objc public func uploadProgressDidChange(speed: Swift.String, progress: Swift.Float, bytesSent: Swift.Int, imageSize: Swift.Int, timestamp: Foundation.Date)
+  @objc public func nativeLog(logMsg: Swift.String)
+  @objc override dynamic public init()
+  @objc deinit
+}
+@objc @_inheritsConvenienceInitializers public class IdoSifliPlugin : ObjectiveC.NSObject, Flutter.FlutterPlugin, native_channel.ApiSifliHost, native_channel.IDOUpdateSFManagerDelegate {
+  @objc public func checkOtaDoing(completion: @escaping (Foundation.NSNumber?, Flutter.FlutterError?) -> Swift.Void)
+  @objc public static func register(with registrar: any Flutter.FlutterPluginRegistrar)
+  @objc public func startOTAFiles(_ files: [Any], deviceUUID: Swift.String, error: Swift.AutoreleasingUnsafeMutablePointer<Flutter.FlutterError?>)
+  @objc public func sifliEBin(fromPngPngDatas pngDatas: Flutter.FlutterStandardTypedData, eColor: Swift.String, type: Foundation.NSNumber, binType: Foundation.NSNumber, boardType: native_channel.IDOSFBoardType, error: Swift.AutoreleasingUnsafeMutablePointer<Flutter.FlutterError?>) -> Flutter.FlutterStandardTypedData?
+  @objc public func sifliEBin(fromPngsPngDatas pngDatas: [Flutter.FlutterStandardTypedData], eColor: Swift.String, type: Foundation.NSNumber, binType: Foundation.NSNumber, boardType: native_channel.IDOSFBoardType, error: Swift.AutoreleasingUnsafeMutablePointer<Flutter.FlutterError?>) -> Flutter.FlutterStandardTypedData?
+  @objc public func asyncSifliEBin(fromPngsPngDatas pngDatas: [Flutter.FlutterStandardTypedData], eColor: Swift.String, type: Foundation.NSNumber, binType: Foundation.NSNumber, boardType: native_channel.IDOSFBoardType, isGif: Foundation.NSNumber, completion: @escaping (Flutter.FlutterStandardTypedData?, Flutter.FlutterError?) -> Swift.Void)
+  @objc public func updateManage(_ state: native_channel.OTAUpdateState, updateDesc desc: Swift.String)
+  @objc public func updateManagerProgress(_ progress: Swift.Float, message: Swift.String?)
+  @objc public func logMessage(_ logMsg: Swift.String)
+  @objc public func startOTANorFiles(_ files: [Any], deviceUUID: Swift.String, platform: Foundation.NSNumber, isIndfu: Foundation.NSNumber, error: Swift.AutoreleasingUnsafeMutablePointer<Flutter.FlutterError?>)
+  @objc public func stopWithError(_ error: Swift.AutoreleasingUnsafeMutablePointer<Flutter.FlutterError?>)
+  @objc override dynamic public init()
+  @objc deinit
+}
+@objc public enum NandImageID : Swift.UInt16 {
+  case HCPU = 0
+  case LCPU = 1
+  case PATCH = 2
+  case RES = 3
+  case LCPU_PATCH = 4
+  case DYN = 5
+  case MUSIC = 6
+  case PIC = 7
+  case FONT = 8
+  case RING = 9
+  case LANG = 10
+  public init?(rawValue: Swift.UInt16)
+  public typealias RawValue = Swift.UInt16
+  public var rawValue: Swift.UInt16 {
+    get
+  }
+}
+@objc @_inheritsConvenienceInitializers @_hasMissingDesignatedInitializers public class NativeChannelPlugin : ObjectiveC.NSObject, Flutter.FlutterPlugin {
+  public static let shared: native_channel.NativeChannelPlugin
+  @objc public static func register(with registrar: any Flutter.FlutterPluginRegistrar)
+  @objc deinit
+}
+@objc public enum NorImageID : Swift.UInt8 {
+  case HCPU = 0
+  case LCPU = 1
+  case PATCH = 2
+  case RES = 3
+  case FONT_OR_MAX = 4
+  case EX = 5
+  case OTA_MANAGER = 6
+  case TINY_FONT = 7
+  case BOOT_LOADER = 11
+  case NONE = 0xff
+  public init?(rawValue: Swift.UInt8)
+  public typealias RawValue = Swift.UInt8
+  public var rawValue: Swift.UInt8 {
+    get
+  }
+}
+extension Foundation.NSData {
+  public var customDescription: Swift.String {
+    get
+  }
+}
+@objc @_inheritsConvenienceInitializers @_hasMissingDesignatedInitializers public class QBleLogManager : ObjectiveC.NSObject {
+  @objc public static let share: native_channel.QBleLogManager
+  @objc public var openLog: Swift.Bool
+  @objc deinit
+}
+@_hasMissingDesignatedInitializers public class QDataTools {
+  public static func SplitData(data: Foundation.Data, upperlimit: Swift.Int) -> Swift.Array<Foundation.Data>
+  public static func Reverse(srcData: Foundation.Data) -> Foundation.Data
+  @objc deinit
+}
+@objc public enum SFOTAErrorType : Swift.Int {
+  case Unknown = 0
+  case ConnectTimeout
+  case ConnectionCanceled
+  case Disconnected
+  case FailedToConnect
+  case General
+  case SearchTimeout
+  case RequestTimeout
+  case LoadResourceZipFailed
+  case LoadControlFileFailed
+  case LoadImageFileFailed
+  case ErrorCodeFromDevice
+  case InsufficientBytes
+  case UnavailableBleStatus
+  case InvalidParams
+  case SendNoRspPacketOutSliceRange
+  case FileTooLarge
+  public init?(rawValue: Swift.Int)
+  public typealias RawValue = Swift.Int
+  public var rawValue: Swift.Int {
+    get
+  }
+}
+@_hasMissingDesignatedInitializers @objc public class SFOTAError : ObjectiveC.NSObject {
+  @objc final public let errorType: native_channel.SFOTAErrorType
+  @objc final public let errorDes: Swift.String
+  @objc override dynamic public var debugDescription: Swift.String {
+    @objc get
+  }
+  @objc deinit
+}
+@objc public enum OTALogLevel : ObjectiveC.NSInteger {
+  case info = 0
+  case warn = 1
+  case debug = 2
+  case error = 3
+  public init?(rawValue: ObjectiveC.NSInteger)
+  public typealias RawValue = ObjectiveC.NSInteger
+  public var rawValue: ObjectiveC.NSInteger {
+    get
+  }
+}
+@objc public protocol SFOTALogManagerDelegate : ObjectiveC.NSObjectProtocol {
+  @objc func otaLogManager(manager: native_channel.SFOTALogManager, onLog log: native_channel.SFOTALogModel!, logLevel level: native_channel.OTALogLevel)
+}
+@objc @_inheritsConvenienceInitializers @_hasMissingDesignatedInitializers public class SFOTALogManager : ObjectiveC.NSObject {
+  @objc public static let share: native_channel.SFOTALogManager
+  @objc weak public var delegate: (any native_channel.SFOTALogManagerDelegate)?
+  @objc public var logEnable: Swift.Bool {
+    @objc get
+    @objc set
+  }
+  @objc deinit
+}
+@objc public class SFOTALogModel : ObjectiveC.NSObject {
+  @objc final public let timestamp: Swift.Int
+  @objc final public let message: Swift.String
+  @objc public init(timestamp: Swift.Int, message: Swift.String)
+  @objc deinit
+}
+@objc public enum SFOTAType : Swift.Int {
+  case none
+  case nand
+  case norV2
+  case norV1
+  public init?(rawValue: Swift.Int)
+  public typealias RawValue = Swift.Int
+  public var rawValue: Swift.Int {
+    get
+  }
+}
+@objc public enum SFOTANorV1Mode : Swift.Int {
+  case normal = 0
+  case force
+  case resume
+  public init?(rawValue: Swift.Int)
+  public typealias RawValue = Swift.Int
+  public var rawValue: Swift.Int {
+    get
+  }
+}
+@objc public class SFNandImageFileInfo : ObjectiveC.NSObject {
+  @objc final public let path: Foundation.URL
+  @objc final public let imageID: native_channel.NandImageID
+  @objc public init(path: Foundation.URL, imageID: native_channel.NandImageID)
+  @objc override dynamic public var description: Swift.String {
+    @objc get
+  }
+  @objc deinit
+}
+@objc public class SFNorImageFileInfo : ObjectiveC.NSObject {
+  @objc final public let path: Foundation.URL
+  @objc final public let imageID: native_channel.NorImageID
+  @objc public init(path: Foundation.URL, imageID: native_channel.NorImageID)
+  @objc override dynamic public var description: Swift.String {
+    @objc get
+  }
+  @objc deinit
+}
+@objc public protocol SFOTAManagerDelegate : ObjectiveC.NSObjectProtocol {
+  @objc func otaManager(manager: native_channel.SFOTAManager, updateBleState state: native_channel.BleCoreManagerState)
+  @objc func otaManager(manager: native_channel.SFOTAManager, stage: native_channel.SFOTAProgressStage, totalBytes: Swift.Int, completedBytes: Swift.Int)
+  @objc func otaManager(manager: native_channel.SFOTAManager, complete error: native_channel.SFOTAError?)
+}
+@_inheritsConvenienceInitializers @_hasMissingDesignatedInitializers @objc public class SFOTAManager : ObjectiveC.NSObject {
+  @objc public static var SDKVersion: Swift.String {
+    @objc get
+  }
+  @objc public static let share: native_channel.SFOTAManager
+  @objc weak public var delegate: (any native_channel.SFOTAManagerDelegate)?
+  @objc public var searchingTimeout: Swift.Int
+  @objc public func logTest()
+  @objc public var bleState: native_channel.BleCoreManagerState {
+    @objc get
+  }
+  @objc public var isBusy: Swift.Bool {
+    @objc get
+  }
+  @objc public var otaType: native_channel.SFOTAType {
+    @objc get
+  }
+  @objc public func startOTANand(targetDeviceIdentifier: Swift.String, resourcePath: Foundation.URL?, controlImageFilePath: Foundation.URL?, imageFileInfos: [native_channel.SFNandImageFileInfo], tryResume: Swift.Bool, imageResponseFrequnecy: Swift.UInt8 = 4)
+  @objc public func startOTANorV2(targetDeviceIdentifier: Swift.String, controlImageFilePath: Foundation.URL, imageFileInfos: [native_channel.SFNorImageFileInfo], tryResume: Swift.Bool, responseFrequency: Swift.UInt8 = 20)
+  @objc public func startOTANorV1(targetDeviceIdentifier: Swift.String, ctrlFilePath: Foundation.URL, imageFileInfos: [native_channel.SFNorImageFileInfo], triggerMode: native_channel.NorV1TriggerMode, responseFrequency: Swift.UInt8 = 20)
+  @objc public func startOTANorOffline(targetDeviceIdentifier: Swift.String, offlineFilePath: Foundation.URL)
+  @objc public func stop()
+  @objc public func initSDK()
+  @objc deinit
+}
+@objc public enum SFOTAProgressStage : Swift.Int {
+  case nand_res
+  case nand_image
+  case nor
+  public init?(rawValue: Swift.Int)
+  public typealias RawValue = Swift.Int
+  public var rawValue: Swift.Int {
+    get
+  }
+}
+@objc public enum NorV1TriggerMode : Swift.Int {
+  case normal = 0
+  case force
+  case resume
+  public init?(rawValue: Swift.Int)
+  public typealias RawValue = Swift.Int
+  public var rawValue: Swift.Int {
+    get
+  }
+}
+extension native_channel.BleCoreManagerState : Swift.Equatable {}
+extension native_channel.BleCoreManagerState : Swift.Hashable {}
+extension native_channel.BleCoreManagerState : Swift.RawRepresentable {}
+extension native_channel.NandImageID : Swift.Equatable {}
+extension native_channel.NandImageID : Swift.Hashable {}
+extension native_channel.NandImageID : Swift.RawRepresentable {}
+extension native_channel.NorImageID : Swift.Equatable {}
+extension native_channel.NorImageID : Swift.Hashable {}
+extension native_channel.NorImageID : Swift.RawRepresentable {}
+extension native_channel.SFOTAErrorType : Swift.Equatable {}
+extension native_channel.SFOTAErrorType : Swift.Hashable {}
+extension native_channel.SFOTAErrorType : Swift.RawRepresentable {}
+extension native_channel.OTALogLevel : Swift.Equatable {}
+extension native_channel.OTALogLevel : Swift.Hashable {}
+extension native_channel.OTALogLevel : Swift.RawRepresentable {}
+extension native_channel.SFOTAType : Swift.Equatable {}
+extension native_channel.SFOTAType : Swift.Hashable {}
+extension native_channel.SFOTAType : Swift.RawRepresentable {}
+extension native_channel.SFOTANorV1Mode : Swift.Equatable {}
+extension native_channel.SFOTANorV1Mode : Swift.Hashable {}
+extension native_channel.SFOTANorV1Mode : Swift.RawRepresentable {}
+extension native_channel.SFOTAProgressStage : Swift.Equatable {}
+extension native_channel.SFOTAProgressStage : Swift.Hashable {}
+extension native_channel.SFOTAProgressStage : Swift.RawRepresentable {}
+extension native_channel.NorV1TriggerMode : Swift.Equatable {}
+extension native_channel.NorV1TriggerMode : Swift.Hashable {}
+extension native_channel.NorV1TriggerMode : Swift.RawRepresentable {}

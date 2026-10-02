@@ -15,7 +15,49 @@
 		A006 /* GoogleSheetSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A108; };
 		A007 /* CoreBluetooth.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A109; };
 		A008 /* CoreLocation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A110; };
+		B001 /* App.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B101; };
+		B002 /* Flutter.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B102; };
+		B003 /* FlutterPluginRegistrant.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B103; };
+		B004 /* flutter_bluetooth.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B104; };
+		B005 /* IDOUtils.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B105; };
+		B006 /* native_channel.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B106; };
+		B007 /* protocol_c.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B107; };
+		B008 /* protocol_channel.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B108; };
+		B009 /* libiconv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = B109; };
+		B010 /* libz.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = B110; };
+		B011 /* libc++.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = B111; };
+		B012 /* CoreTelephony.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B112; };
+		B013 /* icon_assets.bundle in Resources */ = {isa = PBXBuildFile; fileRef = B113; };
+		E001 /* App.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B101; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		E002 /* Flutter.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B102; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		E003 /* FlutterPluginRegistrant.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B103; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		E004 /* flutter_bluetooth.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B104; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		E005 /* IDOUtils.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B105; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		E006 /* native_channel.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B106; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		E007 /* protocol_c.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B107; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		E008 /* protocol_channel.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B108; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		A505 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				E001 /* App.xcframework in Embed Frameworks */,
+				E002 /* Flutter.xcframework in Embed Frameworks */,
+				E003 /* FlutterPluginRegistrant.xcframework in Embed Frameworks */,
+				E004 /* flutter_bluetooth.xcframework in Embed Frameworks */,
+				E005 /* IDOUtils.xcframework in Embed Frameworks */,
+				E006 /* native_channel.xcframework in Embed Frameworks */,
+				E007 /* protocol_c.xcframework in Embed Frameworks */,
+				E008 /* protocol_channel.xcframework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		A101 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSLocationTrackerApp.swift; sourceTree = "<group>"; };
@@ -28,6 +70,19 @@
 		A108 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleSheetSyncManager.swift; sourceTree = "<group>"; };
 		A109 = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreBluetooth.framework; path = System/Library/Frameworks/CoreBluetooth.framework; sourceTree = SDKROOT; };
 		A110 = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreLocation.framework; path = System/Library/Frameworks/CoreLocation.framework; sourceTree = SDKROOT; };
+		B101 = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = App.xcframework; path = Frameworks/App.xcframework; sourceTree = "<group>"; };
+		B102 = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = Flutter.xcframework; path = Frameworks/Flutter.xcframework; sourceTree = "<group>"; };
+		B103 = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = FlutterPluginRegistrant.xcframework; path = Frameworks/FlutterPluginRegistrant.xcframework; sourceTree = "<group>"; };
+		B104 = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = flutter_bluetooth.xcframework; path = Frameworks/flutter_bluetooth.xcframework; sourceTree = "<group>"; };
+		B105 = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = IDOUtils.xcframework; path = Frameworks/IDOUtils.xcframework; sourceTree = "<group>"; };
+		B106 = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = native_channel.xcframework; path = Frameworks/native_channel.xcframework; sourceTree = "<group>"; };
+		B107 = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = protocol_c.xcframework; path = Frameworks/protocol_c.xcframework; sourceTree = "<group>"; };
+		B108 = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = protocol_channel.xcframework; path = Frameworks/protocol_channel.xcframework; sourceTree = "<group>"; };
+		B109 = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libiconv.tbd; path = usr/lib/libiconv.tbd; sourceTree = SDKROOT; };
+		B110 = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libz.tbd; path = usr/lib/libz.tbd; sourceTree = SDKROOT; };
+		B111 = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = "libc++.tbd"; path = "usr/lib/libc++.tbd"; sourceTree = SDKROOT; };
+		B112 = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreTelephony.framework; path = System/Library/Frameworks/CoreTelephony.framework; sourceTree = SDKROOT; };
+		B113 = {isa = PBXFileReference; lastKnownFileType = wrapper.plug-in; name = icon_assets.bundle; path = Frameworks/icon_assets.bundle; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -37,6 +92,18 @@
 			files = (
 				A007 /* CoreBluetooth.framework in Frameworks */,
 				A008 /* CoreLocation.framework in Frameworks */,
+				B012 /* CoreTelephony.framework in Frameworks */,
+				B001 /* App.xcframework in Frameworks */,
+				B002 /* Flutter.xcframework in Frameworks */,
+				B003 /* FlutterPluginRegistrant.xcframework in Frameworks */,
+				B004 /* flutter_bluetooth.xcframework in Frameworks */,
+				B005 /* IDOUtils.xcframework in Frameworks */,
+				B006 /* native_channel.xcframework in Frameworks */,
+				B007 /* protocol_c.xcframework in Frameworks */,
+				B008 /* protocol_channel.xcframework in Frameworks */,
+				B009 /* libiconv.tbd in Frameworks */,
+				B010 /* libz.tbd in Frameworks */,
+				B011 /* libc++.tbd in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -70,6 +137,19 @@
 			children = (
 				A109,
 				A110,
+				B112,
+				B101,
+				B102,
+				B103,
+				B104,
+				B105,
+				B106,
+				B107,
+				B108,
+				B109,
+				B110,
+				B111,
+				B113,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -90,10 +170,11 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = A401;
 			buildPhases = (
-				A501,
-				A502,
-				A503,
-				A504,
+				A502 /* Sources */,
+				A503 /* Frameworks */,
+				A501 /* Resources */,
+				A505 /* Embed Frameworks */,
+				A504 /* ShellScript */,
 			);
 			buildRules = (
 			);
@@ -141,6 +222,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B013 /* icon_assets.bundle in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -205,12 +287,44 @@
 		A703 = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_BITCODE = NO;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Frameworks",
+				);
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"PLATFORM_TYPE=2",
+					"HAVE_INTTYPES_H",
+					"HAVE_PKCRYPT",
+					"HAVE_STDINT_H",
+					"HAVE_WZAES",
+					"HAVE_ZLIB",
+					"VAR_ARRAYS",
+					"USE_ALLOCA",
+					"NONTHREADSAFE_PSEUDOSTACK",
+					"OPUS_BUILD",
+					"STDC_HEADERS",
+				);
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
 				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-l\"iconv\"",
+					"-l\"z\"",
+					"-l\"c++\"",
+					"-framework",
+					"\"CoreTelephony\"",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.securitypass;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
@@ -221,12 +335,44 @@
 		A704 = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_BITCODE = NO;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Frameworks",
+				);
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"PLATFORM_TYPE=2",
+					"HAVE_INTTYPES_H",
+					"HAVE_PKCRYPT",
+					"HAVE_STDINT_H",
+					"HAVE_WZAES",
+					"HAVE_ZLIB",
+					"VAR_ARRAYS",
+					"USE_ALLOCA",
+					"NONTHREADSAFE_PSEUDOSTACK",
+					"OPUS_BUILD",
+					"STDC_HEADERS",
+				);
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
 				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-l\"iconv\"",
+					"-l\"z\"",
+					"-l\"c++\"",
+					"-framework",
+					"\"CoreTelephony\"",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.securitypass;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
