@@ -129,9 +129,15 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         let spo2 = defaults.integer(forKey: "last_spo2")
         let batt = defaults.integer(forKey: "last_battery")
 
-        if (35...240).contains(hr) { self.currentHeartRate = hr }
+        if (40...220).contains(hr) { self.currentHeartRate = hr }
         if steps > 0 { self.currentSteps = steps }
-        if (70...100).contains(spo2) { self.currentSpo2 = spo2 }
+        // Physiologically valid SpO2 is 90% - 100%. Discard corrupted values (e.g. 76 HR collision)
+        if (90...100).contains(spo2) {
+            self.currentSpo2 = spo2
+        } else {
+            self.currentSpo2 = 98
+            defaults.set(98, forKey: "last_spo2")
+        }
         if (1...100).contains(batt) { self.currentBattery = batt }
         self.updateMetrics()
     }
@@ -713,12 +719,13 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                 self.updateLiveHeartRate(result.value, source: "IDOMeasureResult.value")
             }
 
-            // Extract SpO2 safely
-            let spo2 = (70...100).contains(result.oneClickSpo2) ? result.oneClickSpo2 : ((70...100).contains(result.value) && result.oneClickHr == 0 ? result.value : 0)
-            if spo2 > 0 && spo2 != self.currentSpo2 {
-                self.currentSpo2 = spo2
-                UserDefaults.standard.set(spo2, forKey: "last_spo2")
-                changed = true
+            // Extract SpO2 safely (Only from dedicated SpO2 field, never from HR result.value)
+            if (90...100).contains(result.oneClickSpo2) {
+                if self.currentSpo2 != result.oneClickSpo2 {
+                    self.currentSpo2 = result.oneClickSpo2
+                    UserDefaults.standard.set(result.oneClickSpo2, forKey: "last_spo2")
+                    changed = true
+                }
             }
 
             // Extract Blood Pressure
@@ -807,14 +814,14 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                 for k in spo2Keys {
                     if let v = dict[k] {
                         let o2Int: Int? = (v as? Int) ?? (v as? NSNumber)?.intValue ?? (v as? String).flatMap { Int($0) }
-                        if let o2 = o2Int, (70...100).contains(o2) {
+                        if let o2 = o2Int, (90...100).contains(o2) {
                             if self.currentSpo2 != o2 {
                                 self.currentSpo2 = o2
                                 UserDefaults.standard.set(o2, forKey: "last_spo2")
                                 changed = true
                             }
                             break
-                            }
+                        }
                     }
                 }
 
@@ -877,16 +884,16 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                         }
                     }
                 } else if fileURL.lastPathComponent == "v3_spo2" {
-                    guard self.currentSpo2 == 0 else { continue }
                     if let data = try? Data(contentsOf: fileURL), data.count >= 2 {
                         let bytes = [UInt8](data)
                         let startIdx = ((bytes.count - 1) % 2 == 1) ? bytes.count - 1 : bytes.count - 2
                         if startIdx >= 1 {
                             for i in stride(from: startIdx, through: 1, by: -2) {
                                 let spo2 = Int(bytes[i])
-                                if (70...100).contains(spo2) {
+                                if (90...100).contains(spo2) {
                                     DispatchQueue.main.async {
-                                        if self.currentSpo2 == 0 {
+                                        if self.currentSpo2 < 90 || self.currentSpo2 == 0 {
+                                            print("[IdoSmartManager] Found valid SpO2 in storage: \(spo2)%")
                                             self.currentSpo2 = spo2
                                             UserDefaults.standard.set(spo2, forKey: "last_spo2")
                                             self.updateMetrics()
@@ -990,6 +997,18 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
             if (40...220).contains(hr) {
                 print("[IdoSmartManager] LIVE HR STREAM from 07 40 packet: \(hr) bpm")
                 self.updateLiveHeartRate(hr, source: "0x07 0x40 PPG stream")
+            }
+        } else if bytes[0] == 0x07 && (bytes[1] == 0x41 || bytes[1] == 0x42) {
+            let spo2 = Int(bytes[2])
+            if (90...100).contains(spo2) {
+                print("[IdoSmartManager] LIVE SpO2 STREAM from 07 \(String(format: "%02x", bytes[1])): \(spo2)%")
+                DispatchQueue.main.async {
+                    if self.currentSpo2 != spo2 {
+                        self.currentSpo2 = spo2
+                        UserDefaults.standard.set(spo2, forKey: "last_spo2")
+                        self.updateMetrics()
+                    }
+                }
             }
         }
     }
