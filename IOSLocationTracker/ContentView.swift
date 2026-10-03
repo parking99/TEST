@@ -1,356 +1,333 @@
+//
+//  ContentView.swift
+//  SecurityPass — الواجهة الجديدة
+//
+//  يستبدل هذا الملف ContentView القديم بالكامل. لم يُمسّ أي مدير:
+//  IdoSmartManager و LocationManager و GoogleSheetSyncManager و
+//  BloodPressureAlgorithm تُستدعى بنفس أسمائها وتواقيعها الحالية.
+//
+
 import SwiftUI
 
 struct ContentView: View {
-    @StateObject private var watchManager = IdoSmartManager.shared
-    @StateObject private var locationManager = LocationManager()
 
-    @State private var empId: String = "WATCH_001"
-    @State private var sheetSyncStatusText: String = "المزامنة التلقائية مع Google Sheets: مفعلة"
-    @State private var showingAlert: Bool = false
-    @State private var alertMessage: String = ""
+    @StateObject private var ido = IdoSmartManager.shared
+    @StateObject private var location = LocationManager()
 
-    // Periodic 30s auto-sync timer
-    let timer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
+    /// نفس مفتاح التخزين المستخدم في البناء الحالي.
+    @AppStorage("WATCH_APP_DEFAULT") private var employeeId: String = "WATCH_001"
+
+    @State private var tab: Tab = .status
+
+    enum Tab: Hashable { case status, devices, sos, identity }
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            SP.Color.ground.ignoresSafeArea()
+
+            Group {
+                switch tab {
+                case .status:
+                    StatusScreen(ido: ido, location: location, employeeId: employeeId) {
+                        tab = .devices
+                    }
+                case .devices:  DevicesScreen(ido: ido)
+                case .sos:      SOSScreen(ido: ido, location: location, employeeId: employeeId)
+                case .identity: IdentityScreen(ido: ido, location: location, employeeId: $employeeId)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .padding(.bottom, 78)
+
+            SPTabBar(selection: $tab)
+        }
+        .preferredColorScheme(.dark)
+        .spArabic()
+        .onAppear { location.requestPermissions() }
+    }
+}
+
+// MARK: - شريط التبويب
+
+struct SPTabBar: View {
+    @Binding var selection: ContentView.Tab
+
+    var body: some View {
+        HStack(spacing: 4) {
+            item(.status,   "الحالة",  "shield",            SP.Color.accent)
+            item(.devices,  "الأجهزة", "dot.radiowaves.left.and.right", SP.Color.measure)
+            item(.sos,      "SOS",     "exclamationmark.triangle", SP.Color.dangerText)
+            item(.identity, "الهوية",  "person.text.rectangle", SP.Color.accent)
+        }
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+        .padding(.bottom, 16)
+        .background(SP.Color.navBar)
+        .overlay(Rectangle().fill(SP.Color.line).frame(height: 1), alignment: .top)
+    }
+
+    private func item(_ tab: ContentView.Tab, _ label: String,
+                      _ icon: String, _ activeColor: Color) -> some View {
+        let isActive = selection == tab
+        // SOS يبقى أحمر حتى وهو غير نشط — إنه تحذير لا عنصر تنقّل عادي.
+        let tint: Color = isActive ? activeColor
+                        : (tab == .sos ? SP.Color.dangerText : SP.Color.muted)
+
+        return Button { selection = tab } label: {
+            VStack(spacing: 5) {
+                Image(systemName: icon).font(.system(size: 16, weight: .medium))
+                Text(label).font(SP.Font.ui(10.5, isActive || tab == .sos ? .semibold : .medium))
+            }
+            .foregroundStyle(tint)
+            .frame(maxWidth: .infinity, minHeight: SP.Metric.minTarget + 2)
+            .background(isActive ? SP.Color.raised : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: SP.Metric.controlRadius, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(isActive ? .isSelected : [])
+    }
+}
+
+// MARK: - شاشة الحالة (متصل / منقطع)
+
+struct StatusScreen: View {
+    @ObservedObject var ido: IdoSmartManager
+    @ObservedObject var location: LocationManager
+    let employeeId: String
+    var onNavigateToDevices: (() -> Void)? = nil
+
+    @State private var lastSync: Date?
+    @State private var isSending = false
+
+    private var connected: Bool { ido.isConnected && ido.isActivated }
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 12) {
-                headerSection
-                empIdSection
-                vitalsGridSection
-                actionButtonsSection
-                syncStatusSection
-                discoveredDevicesSection
-            }
-            .padding(16)
-        }
-        .background(Color(hex: "F0F4F8").ignoresSafeArea())
-        .environment(\.layoutDirection, .rightToLeft)
-        .onAppear {
-            watchManager.tryAutoConnect()
-        }
-        .onReceive(timer) { _ in
-            if watchManager.isConnected {
-                watchManager.requestLiveMetrics()
-                sendDataToGoogleSheet(isSos: false, isAuto: true)
-            } else {
-                watchManager.tryAutoConnect()
-            }
-        }
-        .alert(isPresented: $showingAlert) {
-            Alert(title: Text("تنبيه"), message: Text(alertMessage), dismissButton: .default(Text("حسناً")))
-        }
-    }
+            VStack(spacing: SP.Metric.gap) {
 
-    // MARK: - Subviews for Clean Type Checking
-    private var headerSection: some View {
-        VStack(spacing: 6) {
-            Text("نظام مراقبة السوار الذكي وقوقل شيت")
-                .font(.system(size: 18, weight: .bold))
-                .foregroundColor(Color(hex: "1E293B"))
-                .multilineTextAlignment(.center)
-                .padding(.top, 8)
-
-            Text(watchManager.statusMessage)
-                .font(.system(size: 13))
-                .foregroundColor(Color(hex: "64748B"))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 4)
-        }
-    }
-
-    private var empIdSection: some View {
-        HStack {
-            Text("المعرف الوظيفي:")
-                .font(.system(size: 13, weight: .bold))
-                .foregroundColor(Color(hex: "334155"))
-
-            TextField("مثال: WATCH_001", text: $empId)
-                .font(.system(size: 14))
-                .foregroundColor(Color(hex: "1E293B"))
-                .padding(8)
-                .background(Color(hex: "F8FAFC"))
-                .cornerRadius(6)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color(hex: "E2E8F0"), lineWidth: 1)
-                )
-        }
-        .padding(10)
-        .background(Color.white)
-        .cornerRadius(10)
-        .shadow(color: Color.black.opacity(0.04), radius: 3, x: 0, y: 1)
-    }
-
-    private var vitalsGridSection: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 8) {
-                MetricCard(
-                    title: "❤️ نبض القلب",
-                    value: watchManager.currentHeartRate > 0 ? "\(watchManager.currentHeartRate) bpm" : "-- bpm",
-                    color: Color(hex: "DC2626")
-                )
-                MetricCard(
-                    title: "💨 نسبة الأكسجين",
-                    value: watchManager.currentSpo2 > 0 ? "\(watchManager.currentSpo2) %" : "-- %",
-                    color: Color(hex: "0284C7")
-                )
-            }
-
-            HStack(spacing: 8) {
-                MetricCard(
-                    title: "🩺 ضغط الدم (خوارزمية)",
-                    value: "\(watchManager.currentBloodPressure) mmHg",
-                    color: Color(hex: "7C3AED")
-                )
-                MetricCard(
-                    title: "🌡️ حرارة الجسم",
-                    value: String(format: "%.1f °C", watchManager.currentTemperature),
-                    color: Color(hex: "EA580C")
-                )
-            }
-
-            HStack(spacing: 8) {
-                MetricCard(
-                    title: "👟 الخطوات",
-                    value: watchManager.currentSteps > 0 ? "\(watchManager.currentSteps) خطوة" : "-- خطوة",
-                    color: Color(hex: "16A34A")
-                )
-                MetricCard(
-                    title: "🔋 البطارية",
-                    value: watchManager.currentBattery > 0 ? "\(watchManager.currentBattery) %" : "-- %",
-                    color: Color(hex: "D97706")
-                )
-            }
-        }
-    }
-
-    private var actionButtonsSection: some View {
-        VStack(spacing: 8) {
-            Button(action: {
-                if watchManager.isScanning {
-                    watchManager.stopScan()
-                } else {
-                    watchManager.startScan()
+                if !connected {
+                    disconnectedBanner
                 }
-            }) {
-                Text(watchManager.isScanning ? "إيقاف البحث" : "البحث عن السوار / الساعة عبر Bluetooth")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(Color(hex: "3B82F6"))
-                    .cornerRadius(8)
-            }
 
-            Button(action: {
-                watchManager.activateWatch()
-            }) {
-                Text("تشغيل / تنشيط شاشة وحساسات الساعة ⚡")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(Color(hex: "0284C7"))
-                    .cornerRadius(8)
-            }
+                heroCard
 
-            Button(action: {
-                watchManager.requestLiveMetrics()
-            }) {
-                Text("قراءة وتحديث نبض القلب فوراً 💓")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(Color(hex: "E11D48"))
-                    .cornerRadius(8)
-            }
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 11),
+                                    GridItem(.flexible(), spacing: 11)], spacing: 11) {
+                    SPMetricCard(title: "نسبة الأكسجين", value: connected ? text(ido.currentSpo2) : "—",
+                                 unit: "%", icon: "drop", iconColor: SP.Color.measure,
+                                 isStale: !connected)
+                    SPMetricCard(title: "ضغط الدم", value: connected ? (ido.currentBloodPressure.isEmpty ? "—" : ido.currentBloodPressure) : "—",
+                                 icon: "gauge.medium", iconColor: SP.Color.accent,
+                                 isStale: !connected)
+                    SPMetricCard(title: "حرارة الجسم", value: connected ? temperatureText : "—",
+                                 unit: "°م", icon: "thermometer.medium",
+                                 iconColor: SP.Color.dangerText, isStale: !connected)
+                    SPMetricCard(title: "الخطوات", value: connected ? text(ido.currentSteps) : "—",
+                                 icon: "figure.walk", iconColor: SP.Color.ok,
+                                 isStale: !connected)
+                    SPMetricCard(title: "بطارية السوار", value: connected ? text(ido.currentBattery) : "—",
+                                 unit: "%", icon: "battery.75", iconColor: SP.Color.muted,
+                                 isStale: !connected)
+                    SPMetricCard(title: "الموقع", value: locationText,
+                                 icon: "location", iconColor: SP.Color.measure)
+                }
 
-            Button(action: {
-                watchManager.forceUnbindAndReset()
-            }) {
-                Text("إلغاء اقتران الساعة وتصفير الربط 🔄")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(Color(hex: "64748B"))
-                    .cornerRadius(8)
-            }
+                syncStrip
 
-            Button(action: {
-                sendDataToGoogleSheet(isSos: false, isAuto: false)
-            }) {
-                Text("إرسال البيانات إلى السيرفر و Google Sheets 📊")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(Color(hex: "16A34A"))
-                    .cornerRadius(8)
-            }
-
-            Button(action: {
-                sendDataToGoogleSheet(isSos: true, isAuto: false)
-            }) {
-                Text("🚨 إرسال نداء استغاثة طارئ (SOS) 🚨")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(Color(hex: "DC2626"))
-                    .cornerRadius(8)
-            }
-        }
-        .padding(.top, 4)
-    }
-
-    private var syncStatusSection: some View {
-        Text(sheetSyncStatusText)
-            .font(.system(size: 12))
-            .foregroundColor(Color(hex: "475569"))
-            .multilineTextAlignment(.center)
-            .padding(.vertical, 4)
-    }
-
-    private var discoveredDevicesSection: some View {
-        VStack(spacing: 6) {
-            HStack {
-                Text("الأجهزة المكتشفة بالقرب منك (انقر للاتصال):")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(Color(hex: "334155"))
-                Spacer()
-            }
-            .padding(.top, 4)
-
-            if watchManager.discoveredDevices.isEmpty {
-                Text("لم يتم العثور على أجهزة بعد. اضغط على زر البحث أعلاه.")
-                    .font(.system(size: 12))
-                    .foregroundColor(Color(hex: "94A3B8"))
-                    .padding(.vertical, 16)
-            } else {
-                ForEach(watchManager.discoveredDevices) { device in
-                    Button(action: {
-                        watchManager.connect(device: device)
-                    }) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("⌚ \(device.name)")
-                                    .font(.system(size: 13, weight: .bold))
-                                    .foregroundColor(Color(hex: "1E293B"))
-                                Text("MAC: \(device.macAddress) (الإشارة: \(device.rssi) dBm)")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(Color(hex: "64748B"))
-                            }
-                            Spacer()
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 12))
-                                .foregroundColor(Color(hex: "94A3B8"))
-                        }
-                        .padding(10)
-                        .background(Color.white)
-                        .cornerRadius(8)
-                        .shadow(color: Color.black.opacity(0.03), radius: 2, x: 0, y: 1)
+                if !connected {
+                    Button {
+                        onNavigateToDevices?()
+                    } label: {
+                        Label("البحث عن السوار يدويًا", systemImage: "magnifyingglass")
                     }
+                    .buttonStyle(SPPrimaryButton())
+                    .padding(.top, 4)
                 }
             }
+            .padding(.horizontal, SP.Metric.screenPadding)
+            .padding(.bottom, 24)
+        }
+        .safeAreaInset(edge: .top) {
+            SPScreenHeader(
+                kicker: "منصة راصد",
+                title: "القراءة الصحية",
+                trailing: AnyView(
+                    SPStatusPill(text: connected ? "متصل ونشِط" : "غير متصل",
+                                 color: connected ? SP.Color.ok : SP.Color.dangerText)
+                )
+            )
+            .background(SP.Color.ground)
         }
     }
 
-    private func sendDataToGoogleSheet(isSos: Bool, isAuto: Bool) {
-        if isSos {
-            sheetSyncStatusText = "🚨 جارٍ إرسال نداء SOS إلى Google Sheets..."
-        } else if !isAuto {
-            sheetSyncStatusText = "جارٍ إرسال البيانات إلى Google Sheets..."
-        }
+    // MARK: أجزاء
 
-        GoogleSheetSyncManager.shared.sendData(
-            empId: empId,
-            latitude: locationManager.latitude,
-            longitude: locationManager.longitude,
-            heartRate: watchManager.currentHeartRate,
-            spo2: watchManager.currentSpo2,
-            bodyTemp: watchManager.currentTemperature,
-            battery: watchManager.currentBattery,
-            isSos: isSos,
-            deviceIdentifier: watchManager.currentDeviceUUID,
-            bloodPressure: watchManager.currentBloodPressure
-        ) { result in
-            let timeStr = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
-            switch result {
-            case .success:
-                if isSos {
-                    sheetSyncStatusText = "🚨 تم إرسال نداء SOS بنجاح! \(timeStr)"
-                    alertMessage = "🚨 تم إرسال نداء الاستغاثة SOS إلى لوحة المراقبة بنجاح!"
-                    showingAlert = true
-                } else {
-                    sheetSyncStatusText = "آخر مزامنة ناجحة: \(timeStr) ✅"
-                    if !isAuto {
-                        alertMessage = "تم إرسال بيانات السوار والضغط إلى Google Sheets بنجاح! 📊"
-                        showingAlert = true
-                    }
-                }
-            case .failure(let error):
-                sheetSyncStatusText = "فشل الإرسال إلى Google Sheets: \(error.localizedDescription)"
-                if !isAuto {
-                    alertMessage = "خطأ في الاتصال بقوقل شيت: \(error.localizedDescription)"
-                    showingAlert = true
-                }
+    private var disconnectedBanner: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 9) {
+                Image(systemName: "antenna.radiowaves.left.and.right.slash")
+                    .foregroundStyle(SP.Color.dangerText)
+                Text("تم قطع الاتصال بالسوار")
+                    .font(SP.Font.ui(14, .semibold))
+                    .foregroundStyle(SP.Color.text)
+                Spacer(minLength: 0)
             }
+            Text(ido.statusMessage.isEmpty
+                 ? "جارٍ البحث التلقائي لإعادة الاتصال فور رصد السوار المقترن."
+                 : ido.statusMessage)
+                .font(SP.Font.ui(12.5))
+                .lineSpacing(4)
+                .foregroundStyle(Color(hex: 0xFFB8B4))
+                .fixedSize(horizontal: false, vertical: true)
         }
-    }
-}
-
-// MARK: - Reusable Metric Card View
-struct MetricCard: View {
-    let title: String
-    let value: String
-    let color: Color
-
-    var body: some View {
-        VStack(spacing: 4) {
-            Text(title)
-                .font(.system(size: 12))
-                .foregroundColor(Color(hex: "64748B"))
-
-            Text(value)
-                .font(.system(size: 18, weight: .bold))
-                .foregroundColor(color)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 10)
-        .padding(.horizontal, 6)
-        .background(Color.white)
-        .cornerRadius(10)
-        .shadow(color: Color.black.opacity(0.04), radius: 3, x: 0, y: 1)
-    }
-}
-
-// MARK: - Color Hex Extension
-extension Color {
-    init(hex: String) {
-        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        var int: UInt64 = 0
-        Scanner(string: hex).scanHexInt64(&int)
-        let a, r, g, b: UInt64
-        switch hex.count {
-        case 3: // RGB (12-bit)
-            (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
-        case 6: // RGB (24-bit)
-            (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
-        case 8: // ARGB (32-bit)
-            (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
-        default:
-            (a, r, g, b) = (255, 0, 0, 0)
-        }
-        self.init(
-            .sRGB,
-            red: Double(r) / 255,
-            green: Double(g) / 255,
-            blue:  Double(b) / 255,
-            opacity: Double(a) / 255
+        .padding(15)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(SP.Color.dangerSurf)
+        .clipShape(RoundedRectangle(cornerRadius: SP.Metric.cardRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: SP.Metric.cardRadius, style: .continuous)
+                .stroke(SP.Color.dangerLine, lineWidth: 1)
         )
     }
+
+    private var heroCard: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            HStack(spacing: 8) {
+                Image(systemName: "heart")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(connected ? SP.Color.accent : SP.Color.muted)
+                Text(connected ? "نبض القلب — مباشر" : "نبض القلب — آخر قراءة")
+                    .font(SP.Font.ui(13, .semibold))
+                    .foregroundStyle(connected ? SP.Color.text : SP.Color.muted)
+                Spacer(minLength: 0)
+                if connected {
+                    Text("تحديث كل ثانيتين")
+                        .font(SP.Font.ui(11))
+                        .foregroundStyle(SP.Color.muted)
+                } else {
+                    Text("قديمة")
+                        .font(SP.Font.ui(10, .semibold))
+                        .foregroundStyle(SP.Color.accent)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(SP.Color.lineStrong, lineWidth: 1))
+                }
+            }
+
+            HStack(alignment: .bottom, spacing: 9) {
+                Text(text(ido.currentHeartRate))
+                    .font(SP.Font.numeric(72))
+                    .foregroundStyle(connected ? SP.Color.accent : SP.Color.dimmer)
+                Text("نبضة/دقيقة")
+                    .font(SP.Font.ui(12))
+                    .foregroundStyle(SP.Color.muted)
+                    .padding(.bottom, 9)
+                Spacer(minLength: 0)
+            }
+
+            SPPulseStrip(live: connected)
+
+            if connected { safeRangeBar }
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(SP.Color.card)
+        .clipShape(RoundedRectangle(cornerRadius: SP.Metric.heroRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: SP.Metric.heroRadius, style: .continuous)
+                .stroke(SP.Color.line, lineWidth: 1)
+        )
+    }
+
+    private var safeRangeBar: some View {
+        VStack(spacing: 7) {
+            HStack(spacing: 4) {
+                bar(SP.Color.okDeep, 2); bar(SP.Color.ok, 3)
+                bar(Color(hex: 0x1F4C94), 2); bar(SP.Color.line, 1)
+            }
+            HStack {
+                Text("هادئ").font(SP.Font.ui(10.5)).foregroundStyle(SP.Color.muted)
+                Spacer()
+                Text("النطاق الآمن").font(SP.Font.ui(10.5, .semibold)).foregroundStyle(SP.Color.ok)
+                Spacer()
+                Text("مرتفع").font(SP.Font.ui(10.5)).foregroundStyle(SP.Color.muted)
+            }
+        }
+    }
+
+    private func bar(_ color: Color, _ weight: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: 3).fill(color)
+            .frame(height: 5).layoutPriority(weight)
+    }
+
+    private var syncStrip: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("آخر إرسال وصل")
+                    .font(SP.Font.ui(11.5))
+                    .foregroundStyle(SP.Color.muted)
+                Text(lastSync.map(Self.timeFormatter.string(from:)) ?? "—")
+                    .font(SP.Font.numeric(13))
+                    .foregroundStyle(SP.Color.text)
+            }
+            Spacer(minLength: 0)
+            Button(isSending ? "جارٍ الإرسال…" : "إرسال الآن") { send() }
+                .font(SP.Font.ui(13, .semibold))
+                .foregroundStyle(SP.Color.onAccent)
+                .padding(.horizontal, 15)
+                .frame(minHeight: SP.Metric.minTarget)
+                .background(SP.Color.accent)
+                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .disabled(isSending)
+        }
+        .padding(.horizontal, 13)
+        .padding(.vertical, 11)
+        .background(SP.Color.raised)
+        .clipShape(RoundedRectangle(cornerRadius: SP.Metric.cardRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: SP.Metric.cardRadius, style: .continuous)
+                .stroke(SP.Color.line, lineWidth: 1)
+        )
+    }
+
+    // MARK: منطق العرض فقط — الإرسال يمر بنفس المدير الحالي
+
+    private func send() {
+        isSending = true
+        GoogleSheetSyncManager.shared.sendData(
+            empId: employeeId,
+            latitude: location.latitude,
+            longitude: location.longitude,
+            heartRate: ido.currentHeartRate,
+            spo2: ido.currentSpo2,
+            bodyTemp: ido.currentTemperature,
+            battery: ido.currentBattery,
+            isSos: false,
+            deviceIdentifier: ido.currentDeviceUUID,
+            bloodPressure: ido.currentBloodPressure
+        ) { result in
+            DispatchQueue.main.async {
+                isSending = false
+                if case .success = result { lastSync = Date() }
+            }
+        }
+    }
+
+    private func text(_ value: Int) -> String { value > 0 ? "\(value)" : "—" }
+
+    private var temperatureText: String {
+        ido.currentTemperature > 0 ? String(format: "%.1f", ido.currentTemperature) : "—"
+    }
+
+    private var locationText: String {
+        location.latitude == 0 && location.longitude == 0 ? "—" : "مُحدَّد"
+    }
+
+    private static let timeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "ar")
+        f.dateFormat = "hh:mm a"
+        return f
+    }()
 }

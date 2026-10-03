@@ -13,6 +13,11 @@
 		A004 /* IdoSmartManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A106; };
 		A005 /* BloodPressureAlgorithm.swift in Sources */ = {isa = PBXBuildFile; fileRef = A107; };
 		A006 /* GoogleSheetSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A108; };
+		A011 /* SPTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A111; };
+		A012 /* SPComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = A112; };
+		A013 /* DevicesScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = A113; };
+		A014 /* SOSScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = A114; };
+		A015 /* IdentityScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = A115; };
 		A007 /* CoreBluetooth.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A109; };
 		A008 /* CoreLocation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A110; };
 		B001 /* App.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B101; };
@@ -69,6 +74,11 @@
 		A106 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdoSmartManager.swift; sourceTree = "<group>"; };
 		A107 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloodPressureAlgorithm.swift; sourceTree = "<group>"; };
 		A108 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleSheetSyncManager.swift; sourceTree = "<group>"; };
+		A111 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SPTheme.swift; sourceTree = "<group>"; };
+		A112 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SPComponents.swift; sourceTree = "<group>"; };
+		A113 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicesScreen.swift; sourceTree = "<group>"; };
+		A114 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SOSScreen.swift; sourceTree = "<group>"; };
+		A115 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdentityScreen.swift; sourceTree = "<group>"; };
 		A109 = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreBluetooth.framework; path = System/Library/Frameworks/CoreBluetooth.framework; sourceTree = SDKROOT; };
 		A110 = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreLocation.framework; path = System/Library/Frameworks/CoreLocation.framework; sourceTree = SDKROOT; };
 		B101 = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = App.xcframework; path = Frameworks/App.xcframework; sourceTree = "<group>"; };
@@ -121,6 +131,11 @@
 				A106,
 				A107,
 				A108,
+				A111,
+				A112,
+				A113,
+				A114,
+				A115,
 				A104,
 			);
 			name = IOSLocationTracker;
@@ -268,6 +283,11 @@
 				A004 /* IdoSmartManager.swift in Sources */,
 				A005 /* BloodPressureAlgorithm.swift in Sources */,
 				A006 /* GoogleSheetSyncManager.swift in Sources */,
+				A011 /* SPTheme.swift in Sources */,
+				A012 /* SPComponents.swift in Sources */,
+				A013 /* DevicesScreen.swift in Sources */,
+				A014 /* SOSScreen.swift in Sources */,
+				A015 /* IdentityScreen.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
