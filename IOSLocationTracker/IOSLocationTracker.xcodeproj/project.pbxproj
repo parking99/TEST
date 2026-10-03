@@ -35,10 +35,7 @@
 		B013 /* icon_assets.bundle in Resources */ = {isa = PBXBuildFile; fileRef = B113; };
 		E001 /* App.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B101; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		E002 /* Flutter.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B102; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		E003 /* FlutterPluginRegistrant.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B103; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		E004 /* flutter_bluetooth.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B104; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		E005 /* IDOUtils.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B105; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		E006 /* native_channel.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B106; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		E007 /* protocol_c.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B107; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		E008 /* protocol_channel.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B108; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		Z001 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = Z102 /* ZIPFoundation */; };
@@ -53,10 +50,7 @@
 			files = (
 				E001 /* App.xcframework in Embed Frameworks */,
 				E002 /* Flutter.xcframework in Embed Frameworks */,
-				E003 /* FlutterPluginRegistrant.xcframework in Embed Frameworks */,
 				E004 /* flutter_bluetooth.xcframework in Embed Frameworks */,
-				E005 /* IDOUtils.xcframework in Embed Frameworks */,
-				E006 /* native_channel.xcframework in Embed Frameworks */,
 				E007 /* protocol_c.xcframework in Embed Frameworks */,
 				E008 /* protocol_channel.xcframework in Embed Frameworks */,
 			);
@@ -191,7 +185,6 @@
 				A503 /* Frameworks */,
 				A501 /* Resources */,
 				A505 /* Embed Frameworks */,
-				A504 /* ShellScript */,
 			);
 			buildRules = (
 			);
@@ -250,27 +243,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
-
-/* Begin PBXShellScriptBuildPhase section */
-		A504 = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = "Create SecurityPass Binary Alias";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "cp \"${TARGET_BUILD_DIR}/${WRAPPER_NAME}/${EXECUTABLE_NAME}\" \"${TARGET_BUILD_DIR}/${WRAPPER_NAME}/SecurityPass\" 2>/dev/null || true\n";
-		};
-/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		A502 = {
