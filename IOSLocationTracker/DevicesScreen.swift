@@ -214,7 +214,7 @@ struct DevicesScreen: View {
 
             if !ido.isActivated {
                 Button {
-                    ido.activateWatch()
+                    ido.activateWatch(force: true)
                 } label: {
                     Label("أيقظ الساعة وحسّاساتها", systemImage: "rays")
                 }

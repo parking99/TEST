@@ -99,7 +99,8 @@ struct StatusScreen: View {
 
     @ObservedObject private var syncManager = GoogleSheetSyncManager.shared
 
-    private var connected: Bool { ido.isConnected && ido.isActivated }
+    private var connected: Bool { ido.isConnected }
+    private var fullyActive: Bool { ido.isConnected && ido.isActivated }
 
     var body: some View {
         ScrollView {
@@ -152,8 +153,8 @@ struct StatusScreen: View {
                 kicker: "منصة راصد",
                 title: "القراءة الصحية",
                 trailing: AnyView(
-                    SPStatusPill(text: connected ? "متصل ونشِط" : "غير متصل",
-                                 color: connected ? SP.Color.ok : SP.Color.dangerText)
+                    SPStatusPill(text: fullyActive ? "متصل ونشِط" : (connected ? "متصل (جاري التنشيط)" : "غير متصل"),
+                                 color: fullyActive ? SP.Color.ok : (connected ? SP.Color.measure : SP.Color.dangerText))
                 )
             )
             .background(SP.Color.ground)

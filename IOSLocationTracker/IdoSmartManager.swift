@@ -355,7 +355,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         if !force && isDeviceBound(macAddress: actualMac) {
             print("[IdoSmartManager] Device is already bound! Activating watch sensors directly...")
             statusMessage = "الساعة مقترنة مسبقاً! جاري تنشيط الحساسات... ✅"
-            activateWatch()
+            activateWatch(force: true)
             return
         }
 
@@ -376,7 +376,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                 case .successful, .binded:
                     self.markDeviceBound(macAddress: macToUse, bound: true)
                     self.statusMessage = "تم الاقتران بنجاح! ✅ جاري تفعيل شاشة وحساسات الساعة..."
-                    self.activateWatch()
+                    self.activateWatch(force: true)
 
                 case .needConfirmByApp, .agreeDeleteDeviceData:
                     self.statusMessage = "جارٍ تأكيد الاقتران من التطبيق... ⏳"
@@ -389,7 +389,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                                 sdk.cmd.appMarkBindResult(success: true)
                                 self.markDeviceBound(macAddress: macToUse, bound: true)
                                 self.statusMessage = "تم تأكيد الاقتران بنجاح! ✅ جاري تفعيل الشاشة والحساسات..."
-                                self.activateWatch()
+                                self.activateWatch(force: true)
                             } else {
                                 print("[IdoSmartManager] sendBindResult FAILURE")
                                 sdk.cmd.appMarkBindResult(success: false)
@@ -415,12 +415,12 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
     }
 
     // MARK: - Watch Activation & Sensor Control
-    func activateWatch() {
+    func activateWatch(force: Bool = false) {
         guard isConnected else {
             print("[IdoSmartManager] Cannot activate watch: not connected")
             return
         }
-        if isActivating {
+        if isActivating && !force {
             print("[IdoSmartManager] activateWatch already in progress")
             return
         }
@@ -428,32 +428,36 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         isActivated = true
         statusMessage = "جارٍ تنشيط شاشة وحساسات الساعة... ⚡"
 
+        // Immediately seed saved & storage metrics so the screen is populated without waiting
+        restoreSavedMetrics()
+        readLatestMetricsFromStorage()
+
         // Safety timeout so isActivating resets even if device response is slow
-        DispatchQueue.main.asyncAfter(deadline: .now() + 6.0) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
             self?.isActivating = false
         }
 
         // Sequence 1 (0.0s): Synchronize Date & Time (crucial for protocol V3 timestamping & watch face)
         syncDateTime()
 
-        // Sequence 2 (0.4s): Set User Info (required for calorie & health calculations)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+        // Sequence 2 (0.3s): Set User Info (required for calorie & health calculations)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             let user = IDOUserInfoPramModel(year: 1995, monuth: 1, day: 1, heigh: 175, weigh: 7000, gender: 1)
             _ = Cmds.setUserInfo(user).send { res in
                 print("[IdoSmartManager] setUserInfo result: \(res)")
             }
         }
 
-        // Sequence 3 (0.8s): Enable Raise-to-Wake Gesture (turns on screen when wrist is raised)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+        // Sequence 3 (0.6s): Enable Raise-to-Wake Gesture (turns on screen when wrist is raised)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             let gesture = IDOUpHandGestureParamModel(onOff: 1, showSecond: 5, hasTimeRange: 0, startHour: 0, startMinute: 0, endHour: 23, endMinute: 59)
             _ = Cmds.setUpHandGesture(gesture).send { res in
                 print("[IdoSmartManager] setUpHandGesture result: \(res)")
             }
         }
 
-        // Sequence 4 (1.2s): Set Screen Brightness to activate screen display immediately
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+        // Sequence 4 (0.9s): Set Screen Brightness to activate screen display immediately
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
             let brightness = IDOScreenBrightnessModel(
                 level: 80,
                 opera: 1,
@@ -471,8 +475,8 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
             }
         }
 
-        // Sequence 5 (1.7s): Configure Continuous 24/7 Smart Heart Rate monitoring (interval = 1 minute)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.7) {
+        // Sequence 5 (1.3s): Configure Continuous 24/7 Smart Heart Rate monitoring (interval = 1 minute)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.3) {
             let smartHr = IDOHeartRateModeSmartParamModel(
                 mode: 1,
                 notifyFlag: 1,
@@ -505,8 +509,8 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
             }
         }
 
-        // Sequence 6 (2.3s): Enable SpO2 continuous monitoring
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.3) {
+        // Sequence 6 (1.8s): Enable SpO2 continuous monitoring
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
             let spo2Param = IDOSpo2SwitchParamModel(
                 onOff: 1,
                 startHour: 0,
@@ -523,8 +527,8 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
             }
         }
 
-        // Sequence 7 (2.8s): Trigger find device briefly to wake the screen & haptic motor
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.8) {
+        // Sequence 7 (2.2s): Trigger find device briefly to wake the screen & haptic motor
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
             _ = Cmds.findDeviceStart().send { _ in
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                     _ = Cmds.findDeviceStop().send { _ in }
@@ -532,8 +536,8 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
             }
         }
 
-        // Sequence 8 (3.6s): Start live measurement stream & initial data sync
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.6) { [weak self] in
+        // Sequence 8 (2.8s): Start live measurement stream & initial data sync
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.8) { [weak self] in
             guard let self = self else { return }
             self.isActivating = false
             self.statusMessage = "الساعة نشطة ومتصلة! المراقبة المستمرة لنبض القلب تعمل الآن ✅"
@@ -543,6 +547,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                 print("[IdoSmartManager] IDOMeasureManager.startMeasure(heartRate) result: \(started)")
             }
 
+            self.readLatestMetricsFromStorage()
             self.requestLiveMetrics()
             self.startPeriodicSync()
             GoogleSheetSyncManager.shared.performAutoSync(force: true)
@@ -630,6 +635,11 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
     // MARK: - Live Metric Query & Synchronization
     func requestLiveMetrics() {
         guard isConnected else { return }
+
+        // Seed from storage if metrics are currently zero
+        if currentHeartRate == 0 || currentSpo2 == 0 {
+            readLatestMetricsFromStorage()
+        }
 
         // 1. Query live data directly from watch (instant real-time heart rate and steps)
         _ = Cmds.getLiveData(flag: 1).send { [weak self] res in
@@ -938,12 +948,12 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
 
                 if bound {
                     self.statusMessage = "متصل بالسوار! جاري تنشيط الشاشة والحساسات... ⚡"
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                        self.activateWatch()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                        self.activateWatch(force: true)
                     }
                 } else {
                     self.statusMessage = "متصل بالبلوتوث! جاري إتمام الاقتران بالساعة... ⌚"
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                         self.bindDeviceIfNeeded()
                     }
                 }
@@ -992,7 +1002,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
             case .protocolConnectCompleted, .fastSyncCompleted:
                 self.isConnected = true
                 self.statusMessage = "تم اكتمال بروتوكول الاتصال! جاري تنشيط الحساسات... ⚡"
-                self.activateWatch()
+                self.activateWatch(force: true)
 
             case .syncHealthDataCompleted:
                 if self.currentHeartRate == 0 {

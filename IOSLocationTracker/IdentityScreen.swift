@@ -85,7 +85,7 @@ struct IdentityScreen: View {
                 .buttonStyle(SPSecondaryButton())
 
                 Button {
-                    ido.activateWatch()
+                    ido.activateWatch(force: true)
                 } label: {
                     Label("أيقظ الساعة وحسّاساتها", systemImage: "rays")
                 }
