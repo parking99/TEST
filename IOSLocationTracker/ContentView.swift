@@ -12,7 +12,7 @@ import SwiftUI
 struct ContentView: View {
 
     @StateObject private var ido = IdoSmartManager.shared
-    @StateObject private var location = LocationManager()
+    @StateObject private var location = LocationManager.shared
 
     /// نفس مفتاح التخزين المستخدم في البناء الحالي.
     @AppStorage("WATCH_APP_DEFAULT") private var employeeId: String = "WATCH_001"
@@ -97,8 +97,7 @@ struct StatusScreen: View {
     let employeeId: String
     var onNavigateToDevices: (() -> Void)? = nil
 
-    @State private var lastSync: Date?
-    @State private var isSending = false
+    @ObservedObject private var syncManager = GoogleSheetSyncManager.shared
 
     private var connected: Bool { ido.isConnected && ido.isActivated }
 
@@ -264,22 +263,29 @@ struct StatusScreen: View {
     private var syncStrip: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("آخر إرسال وصل")
-                    .font(SP.Font.ui(11.5))
-                    .foregroundStyle(SP.Color.muted)
-                Text(lastSync.map(Self.timeFormatter.string(from:)) ?? "—")
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(syncManager.isAutoSyncActive ? SP.Color.ok : SP.Color.muted)
+                        .frame(width: 7, height: 7)
+                    Text(syncManager.isAutoSyncActive ? "إرسال تلقائي (كل دقيقة)" : "آخر إرسال وصل")
+                        .font(SP.Font.ui(11.5))
+                        .foregroundStyle(SP.Color.muted)
+                }
+                Text(syncManager.lastSyncTime.map(Self.timeFormatter.string(from:)) ?? "—")
                     .font(SP.Font.numeric(13))
                     .foregroundStyle(SP.Color.text)
             }
             Spacer(minLength: 0)
-            Button(isSending ? "جارٍ الإرسال…" : "إرسال الآن") { send() }
-                .font(SP.Font.ui(13, .semibold))
-                .foregroundStyle(SP.Color.onAccent)
-                .padding(.horizontal, 15)
-                .frame(minHeight: SP.Metric.minTarget)
-                .background(SP.Color.accent)
-                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-                .disabled(isSending)
+            Button(syncManager.isSyncing ? "جارٍ الإرسال…" : "إرسال الآن") {
+                send()
+            }
+            .font(SP.Font.ui(13, .semibold))
+            .foregroundStyle(SP.Color.onAccent)
+            .padding(.horizontal, 15)
+            .frame(minHeight: SP.Metric.minTarget)
+            .background(SP.Color.accent)
+            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .disabled(syncManager.isSyncing)
         }
         .padding(.horizontal, 13)
         .padding(.vertical, 11)
@@ -294,24 +300,7 @@ struct StatusScreen: View {
     // MARK: منطق العرض فقط — الإرسال يمر بنفس المدير الحالي
 
     private func send() {
-        isSending = true
-        GoogleSheetSyncManager.shared.sendData(
-            empId: employeeId,
-            latitude: location.latitude,
-            longitude: location.longitude,
-            heartRate: ido.currentHeartRate,
-            spo2: ido.currentSpo2,
-            bodyTemp: ido.currentTemperature,
-            battery: ido.currentBattery,
-            isSos: false,
-            deviceIdentifier: ido.currentDeviceUUID,
-            bloodPressure: ido.currentBloodPressure
-        ) { result in
-            DispatchQueue.main.async {
-                isSending = false
-                if case .success = result { lastSync = Date() }
-            }
-        }
+        syncManager.performAutoSync(force: true)
     }
 
     private func text(_ value: Int) -> String { value > 0 ? "\(value)" : "—" }

@@ -9,16 +9,19 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
         initFlutterEngine()
+        LocationManager.shared.requestPermissions()
         IdoSmartManager.shared.initSdk()
         return true
     }
 
     func applicationDidEnterBackground(_ application: UIApplication) {
         IdoSmartManager.shared.beginBackgroundKeepAlive()
+        GoogleSheetSyncManager.shared.checkAndTriggerPeriodicSyncIfNeeded()
     }
 
     func applicationWillEnterForeground(_ application: UIApplication) {
         IdoSmartManager.shared.endBackgroundKeepAlive()
+        GoogleSheetSyncManager.shared.checkAndTriggerPeriodicSyncIfNeeded()
     }
 
     private func initFlutterEngine() {

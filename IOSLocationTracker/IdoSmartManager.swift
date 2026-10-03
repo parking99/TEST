@@ -545,6 +545,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
 
             self.requestLiveMetrics()
             self.startPeriodicSync()
+            GoogleSheetSyncManager.shared.performAutoSync(force: true)
         }
     }
 
@@ -863,6 +864,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
             .sink { [weak self] _ in
                 if self?.isConnected == true && self?.isActivated == true {
                     self?.requestLiveMetrics()
+                    GoogleSheetSyncManager.shared.checkAndTriggerPeriodicSyncIfNeeded()
                 }
             }
     }
@@ -895,6 +897,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                 self.isConnected = true
                 self.autoReconnectTimer?.invalidate()
                 self.autoReconnectTimer = nil
+                GoogleSheetSyncManager.shared.startAutoSyncTimer()
                 let mac = self.currentConnectedModel?.macAddress ?? state.macAddress ?? ""
                 let bound = self.isDeviceBound(macAddress: mac)
 
@@ -915,6 +918,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                 self.isActivated = false
                 self.isBindingInProgress = false
                 self.stopPeriodicSync()
+                GoogleSheetSyncManager.shared.stopAutoSyncTimer()
 
                 self.statusMessage = "تم قطع الاتصال. جارٍ البحث التلقائي لإعادة الاتصال بالسوار فور رصده... 🔄"
 

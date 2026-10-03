@@ -13,8 +13,7 @@ struct IdentityScreen: View {
     @ObservedObject var location: LocationManager
     @Binding var employeeId: String
 
-    @State private var lastSync: Date?
-    @State private var isSending = false
+    @ObservedObject private var syncManager = GoogleSheetSyncManager.shared
     @State private var showUnbindConfirm = false
     @FocusState private var idFieldFocused: Bool
 
@@ -52,11 +51,16 @@ struct IdentityScreen: View {
                 .spCard(padding: 16, radius: 16)
 
                 HStack {
-                    Text("آخر إرسال وصل")
-                        .font(SP.Font.ui(13, .semibold))
-                        .foregroundStyle(SP.Color.text)
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(syncManager.isAutoSyncActive ? SP.Color.ok : SP.Color.muted)
+                            .frame(width: 7, height: 7)
+                        Text(syncManager.isAutoSyncActive ? "إرسال تلقائي (كل دقيقة)" : "آخر إرسال وصل")
+                            .font(SP.Font.ui(13, .semibold))
+                            .foregroundStyle(SP.Color.text)
+                    }
                     Spacer()
-                    Text(lastSync.map(Self.timeFormatter.string(from:)) ?? "—")
+                    Text(syncManager.lastSyncTime.map(Self.timeFormatter.string(from:)) ?? "—")
                         .font(SP.Font.numeric(13))
                         .foregroundStyle(SP.Color.text)
                 }
@@ -67,11 +71,11 @@ struct IdentityScreen: View {
                 Button {
                     send()
                 } label: {
-                    Label(isSending ? "جارٍ الإرسال…" : "أرسل قراءاتي الآن",
+                    Label(syncManager.isSyncing ? "جارٍ الإرسال…" : "أرسل قراءاتي الآن",
                           systemImage: "arrow.up.to.line")
                 }
                 .buttonStyle(SPPrimaryButton())
-                .disabled(isSending)
+                .disabled(syncManager.isSyncing)
 
                 Button {
                     ido.requestLiveMetrics()
@@ -113,24 +117,7 @@ struct IdentityScreen: View {
     }
 
     private func send() {
-        isSending = true
-        GoogleSheetSyncManager.shared.sendData(
-            empId: employeeId,
-            latitude: location.latitude,
-            longitude: location.longitude,
-            heartRate: ido.currentHeartRate,
-            spo2: ido.currentSpo2,
-            bodyTemp: ido.currentTemperature,
-            battery: ido.currentBattery,
-            isSos: false,
-            deviceIdentifier: ido.currentDeviceUUID,
-            bloodPressure: ido.currentBloodPressure
-        ) { result in
-            DispatchQueue.main.async {
-                isSending = false
-                if case .success = result { lastSync = Date() }
-            }
-        }
+        syncManager.performAutoSync(force: true)
     }
 
     private static let timeFormatter: DateFormatter = {

@@ -2,6 +2,8 @@ import Foundation
 import CoreLocation
 
 class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
+    static let shared = LocationManager()
+    
     private let locationManager = CLLocationManager()
     
     @Published var latitude: Double = 24.7136
@@ -38,6 +40,8 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         DispatchQueue.main.async {
             self.latitude = loc.coordinate.latitude
             self.longitude = loc.coordinate.longitude
+            // Periodic auto sync hook when location updates (e.g. in background)
+            GoogleSheetSyncManager.shared.checkAndTriggerPeriodicSyncIfNeeded()
         }
     }
 
