@@ -586,6 +586,47 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         }
     }
 
+    // MARK: - Centralized Heart Rate Filter & Smoother
+    func updateLiveHeartRate(_ rawHr: Int, source: String) {
+        // Physiologically plausible range for resting to active human pulse
+        guard (40...220).contains(rawHr) else { return }
+
+        DispatchQueue.main.async {
+            // Initial acquisition: immediately accept
+            if self.currentHeartRate == 0 {
+                print("[IdoSmartManager] Initial HR set to \(rawHr) bpm (source: \(source))")
+                self.currentHeartRate = rawHr
+                UserDefaults.standard.set(rawHr, forKey: "last_heart_rate")
+                self.updateMetrics()
+                return
+            }
+
+            let diff = abs(rawHr - self.currentHeartRate)
+
+            // Outlier rejection & Exponential Moving Average (EMA) smoothing:
+            // Prevents sudden wild spikes from optical noise, wrist motion artifacts, or packet collisions
+            let smoothedHr: Int
+            if diff > 25 {
+                // Heavy damping for sudden jumps (>25 bpm in a single sample): 75% previous + 25% new
+                smoothedHr = Int(round(Double(self.currentHeartRate) * 0.75 + Double(rawHr) * 0.25))
+            } else if diff > 8 {
+                // Moderate smoothing for medium changes: 60% previous + 40% new
+                smoothedHr = Int(round(Double(self.currentHeartRate) * 0.60 + Double(rawHr) * 0.40))
+            } else {
+                // Small natural pulse variation: responsive update
+                smoothedHr = rawHr
+            }
+
+            let finalHr = min(max(smoothedHr, 40), 220)
+            if finalHr != self.currentHeartRate {
+                print("[IdoSmartManager] Filtered HR: \(self.currentHeartRate) -> \(finalHr) (raw: \(rawHr), source: \(source))")
+                self.currentHeartRate = finalHr
+                UserDefaults.standard.set(finalHr, forKey: "last_heart_rate")
+                self.updateMetrics()
+            }
+        }
+    }
+
     // MARK: - Live Metric Query & Synchronization
     func requestLiveMetrics() {
         guard isConnected else { return }
@@ -594,19 +635,12 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         _ = Cmds.getLiveData(flag: 1).send { [weak self] res in
             if case .success(let model) = res, let ld = model {
                 DispatchQueue.main.async {
-                    var changed = false
-                    if (35...240).contains(ld.heartRate) {
-                        print("[IdoSmartManager] LIVE HR from getLiveData: \(ld.heartRate) bpm")
-                        self?.currentHeartRate = ld.heartRate
-                        UserDefaults.standard.set(ld.heartRate, forKey: "last_heart_rate")
-                        changed = true
+                    if (40...220).contains(ld.heartRate) {
+                        self?.updateLiveHeartRate(ld.heartRate, source: "getLiveData")
                     }
-                    if ld.totalStep > 0 {
+                    if ld.totalStep > 0 && ld.totalStep != self?.currentSteps {
                         self?.currentSteps = ld.totalStep
                         UserDefaults.standard.set(ld.totalStep, forKey: "last_steps")
-                        changed = true
-                    }
-                    if changed {
                         self?.updateMetrics()
                     }
                 }
@@ -638,9 +672,6 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
 
         // 4. Run official SDK data sync
         syncHealthData()
-
-        // 5. Read binary files written to disk by IDO C-core
-        readLatestMetricsFromStorage()
     }
 
     func syncHealthData() {
@@ -652,7 +683,9 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
             self.parseSyncString(type: type, jsonStr: jsonStr)
         }, funcCompleted: { [weak self] _ in
             DispatchQueue.main.async {
-                self?.readLatestMetricsFromStorage()
+                if self?.currentHeartRate == 0 {
+                    self?.readLatestMetricsFromStorage()
+                }
                 self?.updateMetrics()
             }
         })
@@ -663,18 +696,16 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         DispatchQueue.main.async {
             var changed = false
 
-            // Extract heart rate
-            let hr = (35...240).contains(result.value) ? result.value : ((35...240).contains(result.oneClickHr) ? result.oneClickHr : 0)
-            if hr > 0 {
-                print("[IdoSmartManager] LIVE HR from IDOMeasureManager: \(hr) bpm")
-                self.currentHeartRate = hr
-                UserDefaults.standard.set(hr, forKey: "last_heart_rate")
-                changed = true
+            // Extract heart rate safely through central filter
+            if (40...220).contains(result.oneClickHr) {
+                self.updateLiveHeartRate(result.oneClickHr, source: "IDOMeasureResult.oneClickHr")
+            } else if (40...220).contains(result.value) && result.oneClickSpo2 == 0 {
+                self.updateLiveHeartRate(result.value, source: "IDOMeasureResult.value")
             }
 
-            // Extract SpO2
-            let spo2 = (70...100).contains(result.oneClickSpo2) ? result.oneClickSpo2 : ((70...100).contains(result.value) && hr != result.value ? result.value : 0)
-            if spo2 > 0 {
+            // Extract SpO2 safely
+            let spo2 = (70...100).contains(result.oneClickSpo2) ? result.oneClickSpo2 : ((70...100).contains(result.value) && result.oneClickHr == 0 ? result.value : 0)
+            if spo2 > 0 && spo2 != self.currentSpo2 {
                 self.currentSpo2 = spo2
                 UserDefaults.standard.set(spo2, forKey: "last_spo2")
                 changed = true
@@ -682,14 +713,20 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
 
             // Extract Blood Pressure
             if (70...220).contains(result.systolicBp) && (40...140).contains(result.diastolicBp) {
-                self.currentBloodPressure = "\(result.systolicBp)/\(result.diastolicBp)"
-                changed = true
+                let bpStr = "\(result.systolicBp)/\(result.diastolicBp)"
+                if self.currentBloodPressure != bpStr {
+                    self.currentBloodPressure = bpStr
+                    changed = true
+                }
             }
 
             // Extract Temperature
             if (300...450).contains(result.temperatureValue) {
-                self.currentTemperature = Double(result.temperatureValue) / 10.0
-                changed = true
+                let temp = Double(result.temperatureValue) / 10.0
+                if self.currentTemperature != temp {
+                    self.currentTemperature = temp
+                    changed = true
+                }
             }
 
             if changed {
@@ -703,12 +740,8 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         guard let data = jsonStr.data(using: .utf8),
               let root = try? JSONSerialization.jsonObject(with: data, options: []) else {
             // Check if string is a direct number
-            if let num = Int(jsonStr.trimmingCharacters(in: .whitespacesAndNewlines)), (35...240).contains(num), type == .heartRate {
-                DispatchQueue.main.async {
-                    self.currentHeartRate = num
-                    UserDefaults.standard.set(num, forKey: "last_heart_rate")
-                    self.updateMetrics()
-                }
+            if let num = Int(jsonStr.trimmingCharacters(in: .whitespacesAndNewlines)), (40...220).contains(num), type == .heartRate {
+                self.updateLiveHeartRate(num, source: "syncDirectString")
             }
             return
         }
@@ -726,49 +759,52 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                 // Steps
                 for k in ["total_step", "totalSteps", "total_steps"] {
                     if let num = dict[k] as? Int, num > 0 {
-                        self.currentSteps = num
-                        UserDefaults.standard.set(num, forKey: "last_steps")
-                        changed = true
+                        if self.currentSteps != num {
+                            self.currentSteps = num
+                            UserDefaults.standard.set(num, forKey: "last_steps")
+                            changed = true
+                        }
                         break
                     }
                 }
                 if self.currentSteps == 0 {
                     for k in ["steps", "step", "step_count", "cur_steps", "sport_step"] {
                         if let num = dict[k] as? Int, num > 0 {
-                            self.currentSteps = num
-                            UserDefaults.standard.set(num, forKey: "last_steps")
-                            changed = true
+                            if self.currentSteps != num {
+                                self.currentSteps = num
+                                UserDefaults.standard.set(num, forKey: "last_steps")
+                                changed = true
+                            }
                             break
                         }
                     }
                 }
 
-                // Heart rate
-                let hrKeys = ["heart_rateVal", "heartRateVal", "heart_rate", "heartRate", "bpm", "cur_hr", "hr", "avg_hr", "last_hr", "silent_hr", "value", "rate"]
+                // Heart rate (Strictly real-time keys only; do NOT parse avg_hr, last_hr, silent_hr)
+                let hrKeys = ["cur_hr", "heart_rateVal", "heartRateVal", "heart_rate", "heartRate", "bpm"]
                 for k in hrKeys {
                     if let v = dict[k] {
                         let hrInt: Int? = (v as? Int) ?? (v as? NSNumber)?.intValue ?? (v as? String).flatMap { Int($0) }
-                        if let hr = hrInt, (35...240).contains(hr) {
-                            print("[IdoSmartManager] Parsed HR from sync key '\(k)': \(hr) bpm")
-                            self.currentHeartRate = hr
-                            UserDefaults.standard.set(hr, forKey: "last_heart_rate")
-                            changed = true
+                        if let hr = hrInt, (40...220).contains(hr) {
+                            self.updateLiveHeartRate(hr, source: "syncKey:\(k)")
                             break
                         }
                     }
                 }
 
                 // SpO2
-                let spo2Keys = ["spo2", "blood_oxygen", "bloodOxygen", "o2", "value"]
+                let spo2Keys = ["spo2", "blood_oxygen", "bloodOxygen", "o2"]
                 for k in spo2Keys {
                     if let v = dict[k] {
                         let o2Int: Int? = (v as? Int) ?? (v as? NSNumber)?.intValue ?? (v as? String).flatMap { Int($0) }
                         if let o2 = o2Int, (70...100).contains(o2) {
-                            self.currentSpo2 = o2
-                            UserDefaults.standard.set(o2, forKey: "last_spo2")
-                            changed = true
+                            if self.currentSpo2 != o2 {
+                                self.currentSpo2 = o2
+                                UserDefaults.standard.set(o2, forKey: "last_spo2")
+                                changed = true
+                            }
                             break
-                        }
+                            }
                     }
                 }
 
@@ -778,10 +814,8 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                 }
             } else if let arr = element as? [Any] {
                 for item in arr.reversed() {
-                    if let num = item as? Int, (35...240).contains(num), type == .heartRate {
-                        self.currentHeartRate = num
-                        UserDefaults.standard.set(num, forKey: "last_heart_rate")
-                        changed = true
+                    if let num = item as? Int, (40...220).contains(num), type == .heartRate {
+                        self.updateLiveHeartRate(num, source: "syncArray")
                         break
                     } else {
                         inspect(element: item)
@@ -796,7 +830,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         }
     }
 
-    // MARK: - Direct Binary Health File Fallback
+    // MARK: - Direct Binary Health File Fallback (Initial connection only)
     func readLatestMetricsFromStorage() {
         let fileManager = FileManager.default
         let searchPaths = [
@@ -812,19 +846,19 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
             }
             for case let fileURL as URL in enumerator {
                 if fileURL.lastPathComponent == "v3_heart_rate" {
+                    // Only use historical storage as a fallback when live reading has not arrived yet!
+                    guard self.currentHeartRate == 0 else { continue }
                     if let data = try? Data(contentsOf: fileURL), data.count >= 2 {
                         let bytes = [UInt8](data)
                         let startIdx = ((bytes.count - 1) % 2 == 1) ? bytes.count - 1 : bytes.count - 2
                         if startIdx >= 1 {
                             for i in stride(from: startIdx, through: 1, by: -2) {
                                 let hr = Int(bytes[i])
-                                if (35...240).contains(hr) {
+                                if (40...220).contains(hr) {
                                     DispatchQueue.main.async {
-                                        if self.currentHeartRate != hr {
-                                            print("[IdoSmartManager] Found HR in storage v3_heart_rate: \(hr) bpm")
-                                            self.currentHeartRate = hr
-                                            UserDefaults.standard.set(hr, forKey: "last_heart_rate")
-                                            self.updateMetrics()
+                                        if self.currentHeartRate == 0 {
+                                            print("[IdoSmartManager] Found initial fallback HR in storage: \(hr) bpm")
+                                            self.updateLiveHeartRate(hr, source: "storageFallback")
                                         }
                                     }
                                     break
@@ -833,6 +867,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                         }
                     }
                 } else if fileURL.lastPathComponent == "v3_spo2" {
+                    guard self.currentSpo2 == 0 else { continue }
                     if let data = try? Data(contentsOf: fileURL), data.count >= 2 {
                         let bytes = [UInt8](data)
                         let startIdx = ((bytes.count - 1) % 2 == 1) ? bytes.count - 1 : bytes.count - 2
@@ -841,7 +876,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                                 let spo2 = Int(bytes[i])
                                 if (70...100).contains(spo2) {
                                     DispatchQueue.main.async {
-                                        if self.currentSpo2 != spo2 {
+                                        if self.currentSpo2 == 0 {
                                             self.currentSpo2 = spo2
                                             UserDefaults.standard.set(spo2, forKey: "last_spo2")
                                             self.updateMetrics()
@@ -942,13 +977,9 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         // Packet 0x07 0x40 is the real-time continuous PPG heart rate stream!
         if bytes[0] == 0x07 && bytes[1] == 0x40 {
             let hr = Int(bytes[2])
-            if (35...240).contains(hr) {
+            if (40...220).contains(hr) {
                 print("[IdoSmartManager] LIVE HR STREAM from 07 40 packet: \(hr) bpm")
-                DispatchQueue.main.async {
-                    self.currentHeartRate = hr
-                    UserDefaults.standard.set(hr, forKey: "last_heart_rate")
-                    self.updateMetrics()
-                }
+                self.updateLiveHeartRate(hr, source: "0x07 0x40 PPG stream")
             }
         }
     }
@@ -964,7 +995,9 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                 self.activateWatch()
 
             case .syncHealthDataCompleted:
-                self.readLatestMetricsFromStorage()
+                if self.currentHeartRate == 0 {
+                    self.readLatestMetricsFromStorage()
+                }
                 self.updateMetrics()
 
             case .unbindOnAuthCodeError, .unbindOnBindStateError:
@@ -980,12 +1013,8 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
 
     func listenDeviceNotification(model: IDODeviceNotificationModel) {
         DispatchQueue.main.async {
-            if let p = model.parameter?.intValue, (35...240).contains(p) {
-                print("[IdoSmartManager] LIVE HR from DeviceNotification parameter: \(p) bpm")
-                self.currentHeartRate = p
-                UserDefaults.standard.set(p, forKey: "last_heart_rate")
-                self.updateMetrics()
-            }
+            // Note: model.parameter is an event parameter (e.g. battery level %, alarm ID, goal %),
+            // NOT heart rate. Never assign model.parameter to heart rate.
 
             // When device notifies of new heart rate, blood oxygen, or step data
             let type = model.dataType?.intValue ?? 0
