@@ -158,7 +158,7 @@ class GoogleSheetSyncManager: ObservableObject {
             lng: longitude,
             heart_rate: heartRate,
             spo2: spo2,
-            bodyTemp: bodyTemp,
+            body_temp: bodyTemp,
             battery: battery,
             status: status,
             fcm_token: fcmToken,

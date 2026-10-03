@@ -39,7 +39,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
     @Published var currentBloodPressure: String = "120/80"
     @Published var currentTemperature: Double = 36.6
 
-    private var currentConnectedModel: IDODeviceModel?
+    var currentConnectedModel: IDODeviceModel?
     private var periodicTimer: AnyCancellable?
     private var autoReconnectTimer: Timer?
     private var isBindingInProgress: Bool = false

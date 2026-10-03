@@ -24,4 +24,15 @@ struct BloodPressureAlgorithm {
         diastolic = min(max(diastolic, 60), 95)
         return (systolic, diastolic)
     }
+
+    static func estimate(heartRate: Int, spo2: Int = 98, prevBP: String = "") -> (systolic: Int, diastolic: Int, formatted: String) {
+        if !prevBP.isEmpty && prevBP.contains("/") {
+            let parts = prevBP.split(separator: "/")
+            if parts.count == 2, let s = Int(parts[0]), let d = Int(parts[1]) {
+                return (s, d, prevBP)
+            }
+        }
+        let calc = calculate(heartRate: heartRate)
+        return (calc.systolic, calc.diastolic, "\(calc.systolic)/\(calc.diastolic)")
+    }
 }
