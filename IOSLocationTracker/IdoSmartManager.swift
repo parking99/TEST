@@ -47,6 +47,18 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
     private var isActivating: Bool = false
     private var backgroundTaskId: UIBackgroundTaskIdentifier = .invalid
 
+    // Connection stability state
+    private var connectTimeoutTimer: Timer?
+    private var isConnectAttemptActive: Bool = false
+    private var userInitiatedDisconnect: Bool = false
+    private var reconnectAttempt: Int = 0
+    private var autoScanToken: Int = 0
+    private var activationToken: Int = 0
+    private var lastActivationStart: Date = .distantPast
+    private var bindWatchdogToken: Int = 0
+    private var isSyncingHealth: Bool = false
+    private var syncStartedAt: Date = .distantPast
+
     override private init() {
         super.init()
         restoreSavedMetrics()
@@ -83,7 +95,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
 
         // Attempt immediate auto-connect if device was previously bonded
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            self?.tryAutoConnect()
+            self?.scheduleReconnect(immediate: true)
         }
 
         print("[IdoSmartManager] IDO SDK initialized successfully")
@@ -101,7 +113,8 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         if isConnected {
             requestLiveMetrics()
         } else {
-            tryAutoConnect()
+            reconnectAttempt = 0
+            scheduleReconnect(immediate: true)
         }
     }
 
@@ -183,9 +196,13 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
             let primaryMac = !macAddress.isEmpty ? macAddress : (!sdkMac.isEmpty ? sdkMac : currentDeviceUUID)
             defaults.set(primaryMac, forKey: "last_connected_mac")
             defaults.set(currentDeviceName, forKey: "last_connected_name")
+            if let u = currentConnectedModel?.uuid, !u.isEmpty {
+                defaults.set(u, forKey: "last_connected_uuid")
+            }
         } else {
             defaults.removeObject(forKey: "last_connected_mac")
             defaults.removeObject(forKey: "last_connected_name")
+            defaults.removeObject(forKey: "last_connected_uuid")
         }
         defaults.synchronize()
         print("[IdoSmartManager] markDeviceBound: mac='\(macAddress)', bound=\(bound), candidates=\(candidates)")
@@ -200,9 +217,50 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         self.currentTemperature = ((36.6 + metabolicShift) * 10).rounded() / 10.0
     }
 
+    // MARK: - Device Identity Helpers
+    private func normalizedId(_ s: String?) -> String {
+        return (s ?? "")
+            .replacingOccurrences(of: ":", with: "")
+            .replacingOccurrences(of: "-", with: "")
+            .uppercased()
+    }
+
+    private func hasSavedIdentity() -> Bool {
+        let d = UserDefaults.standard
+        return !normalizedId(d.string(forKey: "last_connected_mac")).isEmpty
+            || !normalizedId(d.string(forKey: "last_connected_uuid")).isEmpty
+    }
+
+    /// True only if the given identifiers belong to the watch we previously paired with.
+    private func matchesSavedDevice(mac: String?, uuid: String?) -> Bool {
+        let d = UserDefaults.standard
+        let savedMac = normalizedId(d.string(forKey: "last_connected_mac"))
+        let savedUUID = normalizedId(d.string(forKey: "last_connected_uuid"))
+        if savedMac.isEmpty && savedUUID.isEmpty { return false }
+        let m = normalizedId(mac)
+        let u = normalizedId(uuid)
+        if !m.isEmpty && (m == savedMac || m == savedUUID) { return true }
+        if !u.isEmpty && (u == savedMac || u == savedUUID) { return true }
+        return false
+    }
+
+    /// Per-device bound check. The global "is_any_device_bound" flag alone is NOT enough:
+    /// it would make a brand-new / someone else's watch look "already paired" and skip pairing.
+    private func isBoundForCurrentDevice(fallbackMac: String? = nil) -> Bool {
+        let mac = currentConnectedModel?.macAddress ?? fallbackMac ?? currentDeviceUUID
+        guard isDeviceBound(macAddress: mac) else { return false }
+        guard hasSavedIdentity() else { return true }   // legacy installs without saved identity
+        return matchesSavedDevice(mac: mac, uuid: currentConnectedModel?.uuid)
+            || matchesSavedDevice(mac: currentDeviceUUID, uuid: nil)
+    }
+
     // MARK: - Auto-Connect on Detection
     func tryAutoConnect() {
-        guard !isConnected, !isBindingInProgress else { return }
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in self?.tryAutoConnect() }
+            return
+        }
+        guard !isConnected, !isBindingInProgress, !isConnectAttemptActive, !userInitiatedDisconnect else { return }
         let defaults = UserDefaults.standard
         guard let savedMac = defaults.string(forKey: "last_connected_mac"),
               !savedMac.isEmpty,
@@ -211,12 +269,12 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         }
 
         print("[IdoSmartManager] Attempting auto-connection to bound device: \(savedMac)")
-        DispatchQueue.main.async {
-            self.statusMessage = "جارٍ البحث التلقائي عن السوار المقترن... 🔄"
-        }
+        statusMessage = "جارٍ البحث التلقائي عن السوار المقترن... 🔄"
 
-        // 1. If we have a cached model, attempt direct autoConnect
-        if let model = currentConnectedModel, (model.macAddress == savedMac || model.uuid == savedMac) {
+        // 1. If we have a cached model of OUR watch, attempt direct autoConnect
+        if let model = currentConnectedModel, matchesSavedDevice(mac: model.macAddress, uuid: model.uuid) {
+            isConnectAttemptActive = true
+            startConnectTimeout()
             sdk.ble.autoConnect(device: model)
             return
         }
@@ -225,19 +283,67 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         startAutoScan()
     }
 
+    /// Keeps trying to reconnect to the bonded watch with exponential backoff (2s, 2s, 4s, 8s, 16s, 30s...)
+    /// until it is connected, the user disconnects on purpose, or the watch is unpaired.
+    func scheduleReconnect(immediate: Bool) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in self?.scheduleReconnect(immediate: immediate) }
+            return
+        }
+        guard !isConnected, !userInitiatedDisconnect else { return }
+        guard let savedMac = UserDefaults.standard.string(forKey: "last_connected_mac"), !savedMac.isEmpty else { return }
+
+        autoReconnectTimer?.invalidate()
+        let delay: TimeInterval = immediate ? 0.5 : min(max(pow(2.0, Double(reconnectAttempt)), 2.0), 30.0)
+        reconnectAttempt = min(reconnectAttempt + 1, 10)
+        print("[IdoSmartManager] Reconnect scheduled in \(delay)s (attempt \(reconnectAttempt))")
+
+        autoReconnectTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+            guard let self = self, !self.isConnected else { return }
+            self.tryAutoConnect()
+            self.scheduleReconnect(immediate: false)   // keep the retry loop alive until connected
+        }
+    }
+
+    /// Fails fast instead of hanging on "connecting..." forever.
+    private func startConnectTimeout() {
+        connectTimeoutTimer?.invalidate()
+        connectTimeoutTimer = Timer.scheduledTimer(withTimeInterval: 25, repeats: false) { [weak self] _ in
+            guard let self = self, !self.isConnected else { return }
+            print("[IdoSmartManager] Connect attempt timed out - cancelling and retrying")
+            if let mac = self.currentConnectedModel?.macAddress {
+                sdk.ble.cancelConnect(macAddress: mac) { _ in }
+            }
+            self.isConnectAttemptActive = false
+            self.connectTimeoutTimer = nil
+            self.statusMessage = "انتهت مهلة الاتصال، جارٍ إعادة المحاولة... 🔄"
+            self.scheduleReconnect(immediate: false)
+        }
+    }
+
     func startAutoScan() {
         guard !isConnected else { return }
         isScanning = true
+        autoScanToken += 1
+        let token = autoScanToken
         sdk.ble.stopScan()
         sdk.ble.startScan(macAddress: nil) { [weak self] list in
             guard let self = self, let list = list else { return }
             self.handleDiscoveredList(list)
+        }
+        // Don't scan forever (battery + radio contention). The reconnect loop restarts it.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in
+            guard let self = self, token == self.autoScanToken, !self.isConnected, self.isScanning else { return }
+            sdk.ble.stopScan()
+            self.isScanning = false
         }
     }
 
     // MARK: - Scanning
     func startScan() {
         initSdk()
+        userInitiatedDisconnect = false
+        autoScanToken += 1   // invalidates any pending auto-scan stop
         discoveredDevices.removeAll()
         isScanning = true
         statusMessage = "جارٍ البحث عن السوار الذكي عبر IDO SDK..."
@@ -250,6 +356,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
     }
 
     func stopScan() {
+        autoScanToken += 1
         sdk.ble.stopScan()
         isScanning = false
         if !isConnected {
@@ -260,8 +367,6 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
     private func handleDiscoveredList(_ list: [IDODeviceModel]) {
         DispatchQueue.main.async {
             var updated: [DiscoveredDevice] = []
-            let defaults = UserDefaults.standard
-            let lastMac = defaults.string(forKey: "last_connected_mac") ?? ""
 
             for d in list {
                 let mac = d.macAddress ?? d.uuid ?? UUID().uuidString
@@ -271,10 +376,10 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                     updated.append(dev)
                 }
 
-                // Automatic reconnect when bound smartwatch is detected in Bluetooth range!
-                if !self.isConnected && !self.isBindingInProgress {
-                    if (self.isDeviceBound(macAddress: mac) || mac == lastMac) && !mac.isEmpty {
-                        print("[IdoSmartManager] Found bound device in Bluetooth range: \(name) [\(mac)]. Auto-connecting now! ⚡")
+                // Automatic reconnect ONLY to the watch we paired with (never to any bonded-looking device nearby)
+                if !self.isConnected && !self.isBindingInProgress && !self.isConnectAttemptActive && !self.userInitiatedDisconnect {
+                    if self.matchesSavedDevice(mac: d.macAddress, uuid: d.uuid) && !mac.isEmpty {
+                        print("[IdoSmartManager] Found paired device in Bluetooth range: \(name) [\(mac)]. Auto-connecting now! ⚡")
                         self.statusMessage = "تم رصد السوار المقترن! جارٍ الاتصال التلقائي... ⚡"
                         self.connect(device: dev)
                         return
@@ -287,19 +392,26 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
 
     // MARK: - Connection & Binding
     func connect(device: DiscoveredDevice) {
+        guard !isConnected else {
+            print("[IdoSmartManager] connect ignored: already connected")
+            return
+        }
         stopScan()
         guard let rawModel = device.rawModel else {
             statusMessage = "فشل الاتصال: بيانات الجهاز غير مكتملة"
             return
         }
 
+        userInitiatedDisconnect = false
         currentConnectedModel = rawModel
         currentDeviceName = device.name
         currentDeviceUUID = device.macAddress
         statusMessage = "جارٍ الاتصال بالسوار (\(device.name))..."
 
-        let mac = device.macAddress
-        let bound = isDeviceBound(macAddress: mac)
+        isConnectAttemptActive = true
+        startConnectTimeout()
+
+        let bound = isBoundForCurrentDevice()
 
         if bound {
             print("[IdoSmartManager] Connecting to previously bound device: \(device.name)")
@@ -311,9 +423,14 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
     }
 
     func disconnect() {
+        userInitiatedDisconnect = true   // do NOT auto-reconnect after a deliberate disconnect
+        activationToken += 1
         stopPeriodicSync()
         autoReconnectTimer?.invalidate()
         autoReconnectTimer = nil
+        connectTimeoutTimer?.invalidate()
+        connectTimeoutTimer = nil
+        isConnectAttemptActive = false
         if let mac = currentConnectedModel?.macAddress {
             sdk.ble.cancelConnect(macAddress: mac) { _ in }
         }
@@ -358,7 +475,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
             return
         }
 
-        if !force && isDeviceBound(macAddress: actualMac) {
+        if !force && isBoundForCurrentDevice() {
             print("[IdoSmartManager] Device is already bound! Activating watch sensors directly...")
             statusMessage = "الساعة مقترنة مسبقاً! جاري تنشيط الحساسات... ✅"
             activateWatch(force: true)
@@ -367,6 +484,16 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
 
         isBindingInProgress = true
         statusMessage = "جارٍ إتمام الاقتران بالساعة (وافق على الشاشة إذا ظهر طلب)... ⏳"
+
+        // Watchdog: if the SDK never calls back, don't stay stuck in "binding" forever
+        bindWatchdogToken += 1
+        let bindToken = bindWatchdogToken
+        DispatchQueue.main.asyncAfter(deadline: .now() + 45) { [weak self] in
+            guard let self = self, self.bindWatchdogToken == bindToken, self.isBindingInProgress else { return }
+            print("[IdoSmartManager] Bind watchdog fired - resetting binding state")
+            self.isBindingInProgress = false
+            self.statusMessage = "انتهت مهلة الاقتران. اضغط اتصال للمحاولة مرة أخرى 🔄"
+        }
 
         sdk.cmd.bind(osVersion: 15, onDeviceInfo: { devInfo in
             print("[IdoSmartManager] Device info on bind: battLevel=\(devInfo.battLevel)")
@@ -421,6 +548,16 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
     }
 
     // MARK: - Watch Activation & Sensor Control
+
+    /// Runs `block` after `delay` only if this activation sequence is still the current one and the watch is still connected.
+    /// Prevents stale command bursts from piling up on the BLE queue after reconnects / repeated triggers.
+    private func afterActivation(_ delay: Double, token: Int, _ block: @escaping () -> Void) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self = self, self.activationToken == token, self.isConnected else { return }
+            block()
+        }
+    }
+
     func activateWatch(force: Bool = false) {
         guard isConnected else {
             print("[IdoSmartManager] Cannot activate watch: not connected")
@@ -430,6 +567,15 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
             print("[IdoSmartManager] activateWatch already in progress")
             return
         }
+        // Debounce: several events (connected / protocolConnectCompleted / bind) fire within ~1s of each other.
+        // Restarting the sequence for each one would send duplicate command bursts.
+        if isActivating && Date().timeIntervalSince(lastActivationStart) < 2.5 {
+            print("[IdoSmartManager] activateWatch debounced (sequence just started)")
+            return
+        }
+        lastActivationStart = Date()
+        activationToken += 1
+        let token = activationToken
         isActivating = true
         isActivated = true
         statusMessage = "جارٍ تنشيط شاشة وحساسات الساعة... ⚡"
@@ -440,14 +586,15 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
 
         // Safety timeout so isActivating resets even if device response is slow
         DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
-            self?.isActivating = false
+            guard let self = self, self.activationToken == token else { return }
+            self.isActivating = false
         }
 
         // Sequence 1 (0.0s): Synchronize Date & Time (crucial for protocol V3 timestamping & watch face)
         syncDateTime()
 
         // Sequence 2 (0.3s): Set User Info (required for calorie & health calculations)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+        afterActivation(0.3, token: token) {
             let user = IDOUserInfoPramModel(year: 1995, monuth: 1, day: 1, heigh: 175, weigh: 7000, gender: 1)
             _ = Cmds.setUserInfo(user).send { res in
                 print("[IdoSmartManager] setUserInfo result: \(res)")
@@ -455,7 +602,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         }
 
         // Sequence 3 (0.6s): Enable Raise-to-Wake Gesture (turns on screen when wrist is raised)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+        afterActivation(0.6, token: token) {
             let gesture = IDOUpHandGestureParamModel(onOff: 1, showSecond: 5, hasTimeRange: 0, startHour: 0, startMinute: 0, endHour: 23, endMinute: 59)
             _ = Cmds.setUpHandGesture(gesture).send { res in
                 print("[IdoSmartManager] setUpHandGesture result: \(res)")
@@ -463,7 +610,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         }
 
         // Sequence 4 (0.9s): Set Screen Brightness to activate screen display immediately
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+        afterActivation(0.9, token: token) {
             let brightness = IDOScreenBrightnessModel(
                 level: 80,
                 opera: 1,
@@ -482,7 +629,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         }
 
         // Sequence 5 (1.3s): Configure Continuous 24/7 Smart Heart Rate monitoring (interval = 1 minute)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.3) {
+        afterActivation(1.3, token: token) {
             let smartHr = IDOHeartRateModeSmartParamModel(
                 mode: 1,
                 notifyFlag: 1,
@@ -516,7 +663,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         }
 
         // Sequence 6 (1.8s): Enable SpO2 continuous monitoring
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
+        afterActivation(1.8, token: token) {
             let spo2Param = IDOSpo2SwitchParamModel(
                 onOff: 1,
                 startHour: 0,
@@ -534,7 +681,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         }
 
         // Sequence 7 (2.2s): Trigger find device briefly to wake the screen & haptic motor
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
+        afterActivation(2.2, token: token) {
             _ = Cmds.findDeviceStart().send { _ in
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                     _ = Cmds.findDeviceStop().send { _ in }
@@ -543,7 +690,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         }
 
         // Sequence 8 (2.8s): Start live measurement stream & initial data sync
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.8) { [weak self] in
+        afterActivation(2.8, token: token) { [weak self] in
             guard let self = self else { return }
             self.isActivating = false
             self.statusMessage = "الساعة نشطة ومتصلة! المراقبة المستمرة لنبض القلب تعمل الآن ✅"
@@ -693,12 +840,20 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
     func syncHealthData() {
         guard isConnected else { return }
 
+        // Never overlap syncs: a new startSync while one is running floods the BLE queue
+        if isSyncingHealth && Date().timeIntervalSince(syncStartedAt) < 60 {
+            return
+        }
+        isSyncingHealth = true
+        syncStartedAt = Date()
+
         sdk.syncData.startSync(funcProgress: { _ in }, funcData: { [weak self] type, jsonStr, error in
             guard let self = self, error == 0, !jsonStr.isEmpty else { return }
             print("[IdoSmartManager] SYNC DATA: type=\(type), json=\(jsonStr)")
             self.parseSyncString(type: type, jsonStr: jsonStr)
         }, funcCompleted: { [weak self] _ in
             DispatchQueue.main.async {
+                self?.isSyncingHealth = false
                 if self?.currentHeartRate == 0 {
                     self?.readLatestMetricsFromStorage()
                 }
@@ -934,9 +1089,13 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
 
     func bluetoothState(state: IDOBluetoothStateModel) {
         print("[IdoSmartManager] Bluetooth state changed: \(state.type.rawValue)")
-        if state.type == .poweredOn {
-            if !isConnected {
-                tryAutoConnect()
+        DispatchQueue.main.async {
+            if state.type == .poweredOn {
+                if !self.isConnected {
+                    self.scheduleReconnect(immediate: true)
+                }
+            } else if !self.isConnected {
+                self.statusMessage = "البلوتوث غير مفعّل أو غير متاح. فعّل البلوتوث ليتصل السوار تلقائياً ⚠️"
             }
         }
     }
@@ -947,20 +1106,32 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
             switch state.state {
             case .connected:
                 self.isConnected = true
+                self.isConnectAttemptActive = false
+                self.userInitiatedDisconnect = false
+                self.reconnectAttempt = 0
+                self.connectTimeoutTimer?.invalidate()
+                self.connectTimeoutTimer = nil
                 self.autoReconnectTimer?.invalidate()
                 self.autoReconnectTimer = nil
+                // Connected: stop any background scan to save battery & avoid radio contention
+                self.autoScanToken += 1
+                if self.isScanning {
+                    sdk.ble.stopScan()
+                    self.isScanning = false
+                }
                 GoogleSheetSyncManager.shared.startAutoSyncTimer()
-                let mac = self.currentConnectedModel?.macAddress ?? state.macAddress ?? ""
-                let bound = self.isDeviceBound(macAddress: mac)
 
-                if bound {
+                if self.isBoundForCurrentDevice(fallbackMac: state.macAddress) {
                     self.statusMessage = "متصل بالسوار! جاري تنشيط الشاشة والحساسات... ⚡"
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                        self.activateWatch(force: true)
+                    // Preferred trigger is protocolConnectCompleted; this is a fallback if it never arrives
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                        guard let self = self, self.isConnected, !self.isActivated, !self.isBindingInProgress else { return }
+                        self.activateWatch()
                     }
                 } else {
                     self.statusMessage = "متصل بالبلوتوث! جاري إتمام الاقتران بالساعة... ⌚"
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+                        guard let self = self, self.isConnected else { return }
                         self.bindDeviceIfNeeded()
                     }
                 }
@@ -968,20 +1139,28 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
             case .disconnected:
                 self.isConnected = false
                 self.isActivated = false
+                self.isActivating = false
                 self.isBindingInProgress = false
+                self.isConnectAttemptActive = false
+                self.isSyncingHealth = false
+                self.activationToken += 1   // cancels any pending activation sequence
+                self.connectTimeoutTimer?.invalidate()
+                self.connectTimeoutTimer = nil
                 self.stopPeriodicSync()
                 GoogleSheetSyncManager.shared.stopAutoSyncTimer()
 
-                self.statusMessage = "تم قطع الاتصال. جارٍ البحث التلقائي لإعادة الاتصال بالسوار فور رصده... 🔄"
-
-                // Auto-reconnect scan after disconnection
-                self.autoReconnectTimer?.invalidate()
-                self.autoReconnectTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
-                    self?.tryAutoConnect()
+                if self.userInitiatedDisconnect {
+                    self.statusMessage = "تم قطع الاتصال"
+                } else {
+                    self.statusMessage = "تم قطع الاتصال. جارٍ البحث التلقائي لإعادة الاتصال بالسوار فور رصده... 🔄"
+                    self.scheduleReconnect(immediate: false)
                 }
 
             case .connecting:
                 self.statusMessage = "جاري الاتصال بالسوار والتحقق..."
+                if self.connectTimeoutTimer == nil {
+                    self.startConnectTimeout()
+                }
 
             default:
                 break
@@ -1020,8 +1199,13 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
             switch status {
             case .protocolConnectCompleted, .fastSyncCompleted:
                 self.isConnected = true
-                self.statusMessage = "تم اكتمال بروتوكول الاتصال! جاري تنشيط الحساسات... ⚡"
-                self.activateWatch(force: true)
+                if self.isBindingInProgress {
+                    // Bind completion handler will activate the watch once pairing is confirmed
+                    self.statusMessage = "تم اكتمال بروتوكول الاتصال، بانتظار إتمام الاقتران... ⏳"
+                } else {
+                    self.statusMessage = "تم اكتمال بروتوكول الاتصال! جاري تنشيط الحساسات... ⚡"
+                    self.activateWatch(force: true)
+                }
 
             case .syncHealthDataCompleted:
                 if self.currentHeartRate == 0 {
