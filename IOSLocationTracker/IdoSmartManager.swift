@@ -35,6 +35,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
     @Published var currentHeartRate: Int = 0
     @Published var currentSteps: Int = 0
     @Published var currentSpo2: Int = 98
+    private var lastLiveSpo2Time: Date = Date.distantPast
     @Published var currentBattery: Int = 100
     @Published var currentBloodPressure: String = "120/80"
     @Published var currentTemperature: Double = 36.6
@@ -808,8 +809,11 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
             }
         }
 
-        // 2. Query measure manager for live heart rate
+        // 2. Query measure manager for live heart rate & SpO2
         IDOMeasureManager.shared.getMeasureData(type: .heartRate) { [weak self] result in
+            self?.handleLiveMeasureResult(result)
+        }
+        IDOMeasureManager.shared.getMeasureData(type: .bloodOxygen) { [weak self] result in
             self?.handleLiveMeasureResult(result)
         }
 
@@ -872,6 +876,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
 
             // Extract SpO2 safely (Only from dedicated SpO2 field, never from HR result.value)
             if (90...100).contains(result.oneClickSpo2) {
+                self.lastLiveSpo2Time = Date()
                 if self.currentSpo2 != result.oneClickSpo2 {
                     self.currentSpo2 = result.oneClickSpo2
                     UserDefaults.standard.set(result.oneClickSpo2, forKey: "last_spo2")
@@ -1043,7 +1048,8 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                                 let spo2 = Int(bytes[i])
                                 if (90...100).contains(spo2) {
                                     DispatchQueue.main.async {
-                                        if self.currentSpo2 < 90 || self.currentSpo2 == 0 {
+                                        // Allow storage to update app if we haven't received a live streaming SpO2 in the last 15 seconds
+                                        if self.currentSpo2 < 90 || self.currentSpo2 == 0 || Date().timeIntervalSince(self.lastLiveSpo2Time) > 15 {
                                             print("[IdoSmartManager] Found valid SpO2 in storage: \(spo2)%")
                                             self.currentSpo2 = spo2
                                             UserDefaults.standard.set(spo2, forKey: "last_spo2")
@@ -1179,6 +1185,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
             if (90...100).contains(spo2) {
                 print("[IdoSmartManager] LIVE SpO2 STREAM from 07 \(String(format: "%02x", bytes[1])): \(spo2)%")
                 DispatchQueue.main.async {
+                    self.lastLiveSpo2Time = Date()
                     if self.currentSpo2 != spo2 {
                         self.currentSpo2 = spo2
                         UserDefaults.standard.set(spo2, forKey: "last_spo2")
