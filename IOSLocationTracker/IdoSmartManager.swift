@@ -1120,16 +1120,17 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                 GoogleSheetSyncManager.shared.startAutoSyncTimer()
 
                 if self.isBoundForCurrentDevice(fallbackMac: state.macAddress) {
-                    self.statusMessage = "متصل بالسوار! جاري تنشيط الشاشة والحساسات... ⚡"
+                    self.statusMessage = "متصل بالسوار! بانتظار بروتوكول الاتصال... ⚡"
                     // Preferred trigger is protocolConnectCompleted; this is a fallback if it never arrives
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
                         guard let self = self, self.isConnected, !self.isActivated, !self.isBindingInProgress else { return }
-                        self.activateWatch()
+                        self.activateWatch(force: true)
                     }
                 } else {
-                    self.statusMessage = "متصل بالبلوتوث! جاري إتمام الاقتران بالساعة... ⌚"
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                        guard let self = self, self.isConnected else { return }
+                    self.statusMessage = "متصل بالبلوتوث! جاري طلب الاقتران... ⌚"
+                    // Delay bind to ensure BLE stack is ready; avoids dropping bind command
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                        guard let self = self, self.isConnected, !self.isBindingInProgress else { return }
                         self.bindDeviceIfNeeded()
                     }
                 }
@@ -1197,12 +1198,15 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
             switch status {
             case .protocolConnectCompleted, .fastSyncCompleted:
                 self.isConnected = true
-                if self.isBindingInProgress {
-                    // Bind completion handler will activate the watch once pairing is confirmed
-                    self.statusMessage = "تم اكتمال بروتوكول الاتصال، بانتظار إتمام الاقتران... ⏳"
-                } else {
+                if self.isBoundForCurrentDevice() {
                     self.statusMessage = "تم اكتمال بروتوكول الاتصال! جاري تنشيط الحساسات... ⚡"
                     self.activateWatch(force: true)
+                } else {
+                    // It will be activated after the binding process completes
+                    self.statusMessage = "تم اكتمال بروتوكول الاتصال، بانتظار الاقتران... ⏳"
+                    if !self.isBindingInProgress {
+                        self.bindDeviceIfNeeded()
+                    }
                 }
 
             case .syncHealthDataCompleted:
