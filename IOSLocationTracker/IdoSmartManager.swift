@@ -865,11 +865,9 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         DispatchQueue.main.async {
             var changed = false
 
-            // Extract heart rate safely through central filter
+            // Extract heart rate safely through central filter (Only from dedicated oneClickHr to avoid battery collision)
             if (40...220).contains(result.oneClickHr) {
                 self.updateLiveHeartRate(result.oneClickHr, source: "IDOMeasureResult.oneClickHr")
-            } else if (40...220).contains(result.value) && result.oneClickSpo2 == 0 {
-                self.updateLiveHeartRate(result.value, source: "IDOMeasureResult.value")
             }
 
             // Extract SpO2 safely (Only from dedicated SpO2 field, never from HR result.value)
