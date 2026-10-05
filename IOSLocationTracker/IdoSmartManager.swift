@@ -813,7 +813,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         IDOMeasureManager.shared.getMeasureData(type: .heartRate) { [weak self] result in
             self?.handleLiveMeasureResult(result)
         }
-        IDOMeasureManager.shared.getMeasureData(type: .bloodOxygen) { [weak self] result in
+        IDOMeasureManager.shared.getMeasureData(type: .spo2) { [weak self] result in
             self?.handleLiveMeasureResult(result)
         }
 
