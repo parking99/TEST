@@ -510,7 +510,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                 case .successful, .binded:
                     self.markDeviceBound(macAddress: macToUse, bound: true)
                     self.statusMessage = "تم الاقتران بنجاح! ✅ جاري تفعيل شاشة وحساسات الساعة..."
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
                         self?.activateWatch(force: true)
                     }
 
@@ -525,7 +525,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                                 sdk.cmd.appMarkBindResult(success: true)
                                 self.markDeviceBound(macAddress: macToUse, bound: true)
                                 self.statusMessage = "تم تأكيد الاقتران بنجاح! ✅ جاري تفعيل الشاشة والحساسات..."
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
                                     self?.activateWatch(force: true)
                                 }
                             } else {
@@ -952,8 +952,16 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         guard let data = jsonStr.data(using: .utf8),
               let root = try? JSONSerialization.jsonObject(with: data, options: []) else {
             // Check if string is a direct number
-            if let num = Int(jsonStr.trimmingCharacters(in: .whitespacesAndNewlines)), (40...220).contains(num), type == .heartRate {
-                self.updateLiveHeartRate(num, source: "syncDirectString")
+            if let num = Int(jsonStr.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                if (40...220).contains(num) && type == .heartRate {
+                    self.updateLiveHeartRate(num, source: "syncDirectString")
+                } else if (90...100).contains(num) && (type == .bloodOxygen || type == .spo2) {
+                    if self.currentSpo2 != num {
+                        self.currentSpo2 = num
+                        UserDefaults.standard.set(num, forKey: "last_spo2")
+                        DispatchQueue.main.async { self.updateMetrics() }
+                    }
+                }
             }
             return
         }
@@ -993,7 +1001,9 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                 }
 
                 // Heart rate (Strictly real-time keys only; do NOT parse avg_hr, last_hr, silent_hr)
-                let hrKeys = ["cur_hr", "heart_rateVal", "heartRateVal", "heart_rate", "heartRate", "bpm"]
+                var hrKeys = ["cur_hr", "heart_rateVal", "heartRateVal", "heart_rate", "heartRate", "bpm"]
+                if type == .heartRate { hrKeys.append("value") }
+                
                 for k in hrKeys {
                     if let v = dict[k] {
                         let hrInt: Int? = (v as? Int) ?? (v as? NSNumber)?.intValue ?? (v as? String).flatMap { Int($0) }
@@ -1005,7 +1015,9 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                 }
 
                 // SpO2
-                let spo2Keys = ["spo2", "blood_oxygen", "bloodOxygen", "o2"]
+                var spo2Keys = ["spo2", "blood_oxygen", "bloodOxygen", "o2"]
+                if type == .bloodOxygen || type == .spo2 { spo2Keys.append("value") }
+                
                 for k in spo2Keys {
                     if let v = dict[k] {
                         let o2Int: Int? = (v as? Int) ?? (v as? NSNumber)?.intValue ?? (v as? String).flatMap { Int($0) }
@@ -1026,9 +1038,20 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                 }
             } else if let arr = element as? [Any] {
                 for item in arr.reversed() {
-                    if let num = item as? Int, (40...220).contains(num), type == .heartRate {
-                        self.updateLiveHeartRate(num, source: "syncArray")
-                        break
+                    if let num = item as? Int {
+                        if (40...220).contains(num) && type == .heartRate {
+                            self.updateLiveHeartRate(num, source: "syncArray")
+                            break
+                        } else if (90...100).contains(num) && (type == .bloodOxygen || type == .spo2) {
+                            if self.currentSpo2 != num {
+                                self.currentSpo2 = num
+                                UserDefaults.standard.set(num, forKey: "last_spo2")
+                                changed = true
+                            }
+                            break
+                        } else {
+                            inspect(element: item)
+                        }
                     } else {
                         inspect(element: item)
                     }
@@ -1283,6 +1306,10 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
             if type == 2 || type == 3 || type == 15 || type == 23 || type == 64 || type == 65 {
                 print("[IdoSmartManager] Device notification dataType=\(type) -> Refreshing health metrics")
                 self.requestLiveMetrics()
+                // Sync health data to get historical/completed measurements that don't come via live stream
+                if !self.isSyncingHealth {
+                    self.syncHealthData()
+                }
             }
         }
     }
