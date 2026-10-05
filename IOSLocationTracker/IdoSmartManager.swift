@@ -513,8 +513,8 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
 
                 case .needConfirmByApp, .agreeDeleteDeviceData:
                     self.statusMessage = "جارٍ تأكيد الاقتران من التطبيق... ⏳"
-                    // Official IDO demo: wait 1.0s delay before sending Cmds.sendBindResult
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    // Reduced delay to 0.2s to speed up screen activation/pairing flow
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                         _ = Cmds.sendBindResult(isSuccess: true).send { [weak self] rs in
                             guard let self = self else { return }
                             if case .success = rs {
@@ -593,24 +593,8 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         // Sequence 1 (0.0s): Synchronize Date & Time (crucial for protocol V3 timestamping & watch face)
         syncDateTime()
 
-        // Sequence 2 (0.3s): Set User Info (required for calorie & health calculations)
-        afterActivation(0.3, token: token) {
-            let user = IDOUserInfoPramModel(year: 1995, monuth: 1, day: 1, heigh: 175, weigh: 7000, gender: 1)
-            _ = Cmds.setUserInfo(user).send { res in
-                print("[IdoSmartManager] setUserInfo result: \(res)")
-            }
-        }
-
-        // Sequence 3 (0.6s): Enable Raise-to-Wake Gesture (turns on screen when wrist is raised)
-        afterActivation(0.6, token: token) {
-            let gesture = IDOUpHandGestureParamModel(onOff: 1, showSecond: 5, hasTimeRange: 0, startHour: 0, startMinute: 0, endHour: 23, endMinute: 59)
-            _ = Cmds.setUpHandGesture(gesture).send { res in
-                print("[IdoSmartManager] setUpHandGesture result: \(res)")
-            }
-        }
-
-        // Sequence 4 (0.9s): Set Screen Brightness to activate screen display immediately
-        afterActivation(0.9, token: token) {
+        // Sequence 1.1 (0.1s): Set Screen Brightness to activate screen display immediately
+        afterActivation(0.1, token: token) {
             let brightness = IDOScreenBrightnessModel(
                 level: 80,
                 opera: 1,
@@ -627,6 +611,24 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                 print("[IdoSmartManager] setScreenBrightness result: \(res)")
             }
         }
+
+        // Sequence 2 (0.3s): Set User Info (required for calorie & health calculations)
+        afterActivation(0.3, token: token) {
+            let user = IDOUserInfoPramModel(year: 1995, monuth: 1, day: 1, heigh: 175, weigh: 7000, gender: 1)
+            _ = Cmds.setUserInfo(user).send { res in
+                print("[IdoSmartManager] setUserInfo result: \(res)")
+            }
+        }
+
+        // Sequence 3 (0.6s): Enable Raise-to-Wake Gesture (turns on screen when wrist is raised)
+        afterActivation(0.6, token: token) {
+            let gesture = IDOUpHandGestureParamModel(onOff: 1, showSecond: 5, hasTimeRange: 0, startHour: 0, startMinute: 0, endHour: 23, endMinute: 59)
+            _ = Cmds.setUpHandGesture(gesture).send { res in
+                print("[IdoSmartManager] setUpHandGesture result: \(res)")
+            }
+        }
+
+
 
         // Sequence 5 (1.3s): Configure Continuous 24/7 Smart Heart Rate monitoring (interval = 1 minute)
         afterActivation(1.3, token: token) {
