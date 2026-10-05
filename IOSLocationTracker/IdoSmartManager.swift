@@ -510,7 +510,9 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                 case .successful, .binded:
                     self.markDeviceBound(macAddress: macToUse, bound: true)
                     self.statusMessage = "تم الاقتران بنجاح! ✅ جاري تفعيل شاشة وحساسات الساعة..."
-                    self.activateWatch(force: true)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+                        self?.activateWatch(force: true)
+                    }
 
                 case .needConfirmByApp, .agreeDeleteDeviceData:
                     self.statusMessage = "جارٍ تأكيد الاقتران من التطبيق... ⏳"
@@ -523,7 +525,9 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                                 sdk.cmd.appMarkBindResult(success: true)
                                 self.markDeviceBound(macAddress: macToUse, bound: true)
                                 self.statusMessage = "تم تأكيد الاقتران بنجاح! ✅ جاري تفعيل الشاشة والحساسات..."
-                                self.activateWatch(force: true)
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+                                    self?.activateWatch(force: true)
+                                }
                             } else {
                                 print("[IdoSmartManager] sendBindResult FAILURE")
                                 sdk.cmd.appMarkBindResult(success: false)
@@ -591,36 +595,40 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
             self.isActivating = false
         }
 
-        // Sequence 1 (0.0s): Synchronize Date & Time (crucial for protocol V3 timestamping & watch face)
-        syncDateTime()
-
-        // Sequence 1.1 (0.0s): Set Screen Brightness to activate screen display immediately
-        let brightness = IDOScreenBrightnessModel(
-            level: 80,
-            opera: 1,
-            mode: 0,
-            autoAdjustNight: 0,
-            startHour: 0,
-            startMinute: 0,
-            endHour: 23,
-            endMinute: 59,
-            nightLevel: 30,
-            showInterval: 0
-        )
-        _ = Cmds.setScreenBrightness(brightness).send { res in
-            print("[IdoSmartManager] setScreenBrightness result: \(res)")
+        // Sequence 1 (0.5s): Synchronize Date & Time (crucial for protocol V3 timestamping & watch face)
+        afterActivation(0.5, token: token) {
+            self.syncDateTime()
         }
 
-        // Sequence 2 (0.3s): Set User Info (required for calorie & health calculations)
-        afterActivation(0.3, token: token) {
+        // Sequence 1.1 (1.0s): Set Screen Brightness to activate screen display
+        afterActivation(1.0, token: token) {
+            let brightness = IDOScreenBrightnessModel(
+                level: 80,
+                opera: 1,
+                mode: 0,
+                autoAdjustNight: 0,
+                startHour: 0,
+                startMinute: 0,
+                endHour: 23,
+                endMinute: 59,
+                nightLevel: 30,
+                showInterval: 0
+            )
+            _ = Cmds.setScreenBrightness(brightness).send { res in
+                print("[IdoSmartManager] setScreenBrightness result: \(res)")
+            }
+        }
+
+        // Sequence 2 (1.3s): Set User Info (required for calorie & health calculations)
+        afterActivation(1.3, token: token) {
             let user = IDOUserInfoPramModel(year: 1995, monuth: 1, day: 1, heigh: 175, weigh: 7000, gender: 1)
             _ = Cmds.setUserInfo(user).send { res in
                 print("[IdoSmartManager] setUserInfo result: \(res)")
             }
         }
 
-        // Sequence 3 (0.6s): Enable Raise-to-Wake Gesture (turns on screen when wrist is raised)
-        afterActivation(0.6, token: token) {
+        // Sequence 3 (1.6s): Enable Raise-to-Wake Gesture (turns on screen when wrist is raised)
+        afterActivation(1.6, token: token) {
             let gesture = IDOUpHandGestureParamModel(onOff: 1, showSecond: 5, hasTimeRange: 0, startHour: 0, startMinute: 0, endHour: 23, endMinute: 59)
             _ = Cmds.setUpHandGesture(gesture).send { res in
                 print("[IdoSmartManager] setUpHandGesture result: \(res)")
@@ -629,8 +637,8 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
 
 
 
-        // Sequence 5 (1.3s): Configure Continuous 24/7 Smart Heart Rate monitoring (interval = 1 minute)
-        afterActivation(1.3, token: token) {
+        // Sequence 5 (1.9s): Configure Continuous 24/7 Smart Heart Rate monitoring (interval = 1 minute)
+        afterActivation(1.9, token: token) {
             let smartHr = IDOHeartRateModeSmartParamModel(
                 mode: 1,
                 notifyFlag: 1,
@@ -646,6 +654,22 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
             )
             _ = Cmds.setHeartRateModeSmart(smartHr).send { res in
                 print("[IdoSmartManager] setHeartRateModeSmart completed: \(res)")
+            }
+
+            // Configure Continuous 24/7 SpO2 monitoring for automatic background updates
+            let spo2Switch = IDOSpo2SwitchParamModel(
+                onOff: 1,
+                startHour: 0,
+                startMinute: 0,
+                endHour: 23,
+                endMinute: 59,
+                lowSpo2OnOff: 0,
+                lowSpo2Value: 90,
+                notifyFlag: 1,
+                measurementInterval: 1 // 1 minute interval for fastest updates
+            )
+            _ = Cmds.setSpo2Switch(spo2Switch).send { res in
+                print("[IdoSmartManager] setSpo2Switch result: \(res)")
             }
 
             // Also configure standard continuous HR (mode: 2 = continuous 5s)
