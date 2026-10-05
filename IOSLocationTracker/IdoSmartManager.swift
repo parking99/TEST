@@ -510,29 +510,26 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                 case .successful, .binded:
                     self.markDeviceBound(macAddress: macToUse, bound: true)
                     self.statusMessage = "تم الاقتران بنجاح! ✅ جاري تفعيل شاشة وحساسات الساعة..."
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
-                        self?.activateWatch(force: true)
-                    }
+                    self.activateWatch(force: true)
 
                 case .needConfirmByApp, .agreeDeleteDeviceData:
                     self.statusMessage = "جارٍ تأكيد الاقتران من التطبيق... ⏳"
-                    // Send confirmation immediately without delay
-                    _ = Cmds.sendBindResult(isSuccess: true).send { [weak self] rs in
-                        guard let self = self else { return }
-                        if case .success = rs {
-                            print("[IdoSmartManager] sendBindResult SUCCESS")
-                            sdk.cmd.appMarkBindResult(success: true)
-                            self.markDeviceBound(macAddress: macToUse, bound: true)
-                            self.statusMessage = "تم تأكيد الاقتران بنجاح! ✅ جاري تفعيل الشاشة والحساسات..."
-                            // Give the watch 1.5s to clear the pairing checkmark UI before blasting commands
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
-                                self?.activateWatch(force: true)
+                    // Official IDO demo: wait 1.0s delay before sending Cmds.sendBindResult
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        _ = Cmds.sendBindResult(isSuccess: true).send { [weak self] rs in
+                            guard let self = self else { return }
+                            if case .success = rs {
+                                print("[IdoSmartManager] sendBindResult SUCCESS")
+                                sdk.cmd.appMarkBindResult(success: true)
+                                self.markDeviceBound(macAddress: macToUse, bound: true)
+                                self.statusMessage = "تم تأكيد الاقتران بنجاح! ✅ جاري تفعيل الشاشة والحساسات..."
+                                self.activateWatch(force: true)
+                            } else {
+                                print("[IdoSmartManager] sendBindResult FAILURE")
+                                sdk.cmd.appMarkBindResult(success: false)
+                                self.markDeviceBound(macAddress: macToUse, bound: false)
+                                self.statusMessage = "فشل تأكيد الاقتران"
                             }
-                        } else {
-                            print("[IdoSmartManager] sendBindResult FAILURE")
-                            sdk.cmd.appMarkBindResult(success: false)
-                            self.markDeviceBound(macAddress: macToUse, bound: false)
-                            self.statusMessage = "فشل تأكيد الاقتران"
                         }
                     }
 
@@ -597,23 +594,21 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         // Sequence 1 (0.0s): Synchronize Date & Time (crucial for protocol V3 timestamping & watch face)
         syncDateTime()
 
-        // Sequence 1.1 (0.5s): Set Screen Brightness to activate screen display
-        afterActivation(0.5, token: token) {
-            let brightness = IDOScreenBrightnessModel(
-                level: 80,
-                opera: 1,
-                mode: 0,
-                autoAdjustNight: 0,
-                startHour: 0,
-                startMinute: 0,
-                endHour: 23,
-                endMinute: 59,
-                nightLevel: 30,
-                showInterval: 0
-            )
-            _ = Cmds.setScreenBrightness(brightness).send { res in
-                print("[IdoSmartManager] setScreenBrightness result: \(res)")
-            }
+        // Sequence 1.1 (0.0s): Set Screen Brightness to activate screen display immediately
+        let brightness = IDOScreenBrightnessModel(
+            level: 80,
+            opera: 1,
+            mode: 0,
+            autoAdjustNight: 0,
+            startHour: 0,
+            startMinute: 0,
+            endHour: 23,
+            endMinute: 59,
+            nightLevel: 30,
+            showInterval: 0
+        )
+        _ = Cmds.setScreenBrightness(brightness).send { res in
+            print("[IdoSmartManager] setScreenBrightness result: \(res)")
         }
 
         // Sequence 2 (0.3s): Set User Info (required for calorie & health calculations)
@@ -818,10 +813,10 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
 
         // 2. Query measure manager for live heart rate & SpO2
         IDOMeasureManager.shared.getMeasureData(type: .heartRate) { [weak self] result in
-            self?.handleLiveMeasureResult(result)
+            self?.handleLiveMeasureResult(result, type: .heartRate)
         }
         IDOMeasureManager.shared.getMeasureData(type: .spo2) { [weak self] result in
-            self?.handleLiveMeasureResult(result)
+            self?.handleLiveMeasureResult(result, type: .spo2)
         }
 
         // 3. Query battery
@@ -872,15 +867,28 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
     }
 
     // MARK: - Live PPG Measurement Stream Handling
-    private func handleLiveMeasureResult(_ result: IDOMeasureResult) {
+    private func handleLiveMeasureResult(_ result: IDOMeasureResult, type: IDOMeasureType? = nil) {
         DispatchQueue.main.async {
             var changed = false
 
+            // Extract HR from value if type is explicitly .heartRate (avoids idle battery collision)
+            if type == .heartRate && (40...220).contains(result.value) {
+                self.updateLiveHeartRate(result.value, source: "IDOMeasureResult.value(.heartRate)")
+            }
             // Extract heart rate safely through central filter (Only from dedicated oneClickHr to avoid battery collision)
             if (40...220).contains(result.oneClickHr) {
                 self.updateLiveHeartRate(result.oneClickHr, source: "IDOMeasureResult.oneClickHr")
             }
 
+            // Extract SpO2 from value if type is explicitly .spo2
+            if type == .spo2 && (90...100).contains(result.value) {
+                self.lastLiveSpo2Time = Date()
+                if self.currentSpo2 != result.value {
+                    self.currentSpo2 = result.value
+                    UserDefaults.standard.set(result.value, forKey: "last_spo2")
+                    changed = true
+                }
+            }
             // Extract SpO2 safely (Only from dedicated SpO2 field, never from HR result.value)
             if (90...100).contains(result.oneClickSpo2) {
                 self.lastLiveSpo2Time = Date()
@@ -1225,9 +1233,9 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                 }
 
             case .syncHealthDataCompleted:
-                if self.currentHeartRate == 0 {
-                    self.readLatestMetricsFromStorage()
-                }
+                self.isSyncingHealth = false
+                // Always read freshly synced metrics (e.g. manual SpO2 tests)
+                self.readLatestMetricsFromStorage()
                 self.updateMetrics()
 
             case .unbindOnAuthCodeError, .unbindOnBindStateError:
