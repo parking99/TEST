@@ -1068,6 +1068,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                                         break
                                     }
                                 }
+                            }
                         }
                     }
                 }
