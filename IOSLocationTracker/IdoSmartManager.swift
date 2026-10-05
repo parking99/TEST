@@ -513,22 +513,20 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
 
                 case .needConfirmByApp, .agreeDeleteDeviceData:
                     self.statusMessage = "جارٍ تأكيد الاقتران من التطبيق... ⏳"
-                    // Reduced delay to 0.2s to speed up screen activation/pairing flow
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                        _ = Cmds.sendBindResult(isSuccess: true).send { [weak self] rs in
-                            guard let self = self else { return }
-                            if case .success = rs {
-                                print("[IdoSmartManager] sendBindResult SUCCESS")
-                                sdk.cmd.appMarkBindResult(success: true)
-                                self.markDeviceBound(macAddress: macToUse, bound: true)
-                                self.statusMessage = "تم تأكيد الاقتران بنجاح! ✅ جاري تفعيل الشاشة والحساسات..."
-                                self.activateWatch(force: true)
-                            } else {
-                                print("[IdoSmartManager] sendBindResult FAILURE")
-                                sdk.cmd.appMarkBindResult(success: false)
-                                self.markDeviceBound(macAddress: macToUse, bound: false)
-                                self.statusMessage = "فشل تأكيد الاقتران"
-                            }
+                    // Send confirmation immediately without delay
+                    _ = Cmds.sendBindResult(isSuccess: true).send { [weak self] rs in
+                        guard let self = self else { return }
+                        if case .success = rs {
+                            print("[IdoSmartManager] sendBindResult SUCCESS")
+                            sdk.cmd.appMarkBindResult(success: true)
+                            self.markDeviceBound(macAddress: macToUse, bound: true)
+                            self.statusMessage = "تم تأكيد الاقتران بنجاح! ✅ جاري تفعيل الشاشة والحساسات..."
+                            self.activateWatch(force: true)
+                        } else {
+                            print("[IdoSmartManager] sendBindResult FAILURE")
+                            sdk.cmd.appMarkBindResult(success: false)
+                            self.markDeviceBound(macAddress: macToUse, bound: false)
+                            self.statusMessage = "فشل تأكيد الاقتران"
                         }
                     }
 
@@ -568,8 +566,8 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
             return
         }
         // Debounce: several events (connected / protocolConnectCompleted / bind) fire within ~1s of each other.
-        // Restarting the sequence for each one would send duplicate command bursts.
-        if isActivating && Date().timeIntervalSince(lastActivationStart) < 2.5 {
+        // Restarting the sequence for each one would send duplicate command bursts, unless forced.
+        if isActivating && !force && Date().timeIntervalSince(lastActivationStart) < 2.5 {
             print("[IdoSmartManager] activateWatch debounced (sequence just started)")
             return
         }
@@ -593,23 +591,21 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         // Sequence 1 (0.0s): Synchronize Date & Time (crucial for protocol V3 timestamping & watch face)
         syncDateTime()
 
-        // Sequence 1.1 (0.1s): Set Screen Brightness to activate screen display immediately
-        afterActivation(0.1, token: token) {
-            let brightness = IDOScreenBrightnessModel(
-                level: 80,
-                opera: 1,
-                mode: 0,
-                autoAdjustNight: 0,
-                startHour: 0,
-                startMinute: 0,
-                endHour: 23,
-                endMinute: 59,
-                nightLevel: 30,
-                showInterval: 0
-            )
-            _ = Cmds.setScreenBrightness(brightness).send { res in
-                print("[IdoSmartManager] setScreenBrightness result: \(res)")
-            }
+        // Sequence 1.1 (0.0s): Set Screen Brightness to activate screen display immediately
+        let brightness = IDOScreenBrightnessModel(
+            level: 80,
+            opera: 1,
+            mode: 0,
+            autoAdjustNight: 0,
+            startHour: 0,
+            startMinute: 0,
+            endHour: 23,
+            endMinute: 59,
+            nightLevel: 30,
+            showInterval: 0
+        )
+        _ = Cmds.setScreenBrightness(brightness).send { res in
+            print("[IdoSmartManager] setScreenBrightness result: \(res)")
         }
 
         // Sequence 2 (0.3s): Set User Info (required for calorie & health calculations)
@@ -1126,13 +1122,13 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                 if self.isBoundForCurrentDevice(fallbackMac: state.macAddress) {
                     self.statusMessage = "متصل بالسوار! جاري تنشيط الشاشة والحساسات... ⚡"
                     // Preferred trigger is protocolConnectCompleted; this is a fallback if it never arrives
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                         guard let self = self, self.isConnected, !self.isActivated, !self.isBindingInProgress else { return }
                         self.activateWatch()
                     }
                 } else {
                     self.statusMessage = "متصل بالبلوتوث! جاري إتمام الاقتران بالساعة... ⌚"
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                         guard let self = self, self.isConnected else { return }
                         self.bindDeviceIfNeeded()
                     }
