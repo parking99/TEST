@@ -510,7 +510,9 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                 case .successful, .binded:
                     self.markDeviceBound(macAddress: macToUse, bound: true)
                     self.statusMessage = "تم الاقتران بنجاح! ✅ جاري تفعيل شاشة وحساسات الساعة..."
-                    self.activateWatch(force: true)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                        self?.activateWatch(force: true)
+                    }
 
                 case .needConfirmByApp, .agreeDeleteDeviceData:
                     self.statusMessage = "جارٍ تأكيد الاقتران من التطبيق... ⏳"
@@ -522,7 +524,10 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                             sdk.cmd.appMarkBindResult(success: true)
                             self.markDeviceBound(macAddress: macToUse, bound: true)
                             self.statusMessage = "تم تأكيد الاقتران بنجاح! ✅ جاري تفعيل الشاشة والحساسات..."
-                            self.activateWatch(force: true)
+                            // Give the watch 1.5s to clear the pairing checkmark UI before blasting commands
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                                self?.activateWatch(force: true)
+                            }
                         } else {
                             print("[IdoSmartManager] sendBindResult FAILURE")
                             sdk.cmd.appMarkBindResult(success: false)
@@ -592,21 +597,23 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         // Sequence 1 (0.0s): Synchronize Date & Time (crucial for protocol V3 timestamping & watch face)
         syncDateTime()
 
-        // Sequence 1.1 (0.0s): Set Screen Brightness to activate screen display immediately
-        let brightness = IDOScreenBrightnessModel(
-            level: 80,
-            opera: 1,
-            mode: 0,
-            autoAdjustNight: 0,
-            startHour: 0,
-            startMinute: 0,
-            endHour: 23,
-            endMinute: 59,
-            nightLevel: 30,
-            showInterval: 0
-        )
-        _ = Cmds.setScreenBrightness(brightness).send { res in
-            print("[IdoSmartManager] setScreenBrightness result: \(res)")
+        // Sequence 1.1 (0.5s): Set Screen Brightness to activate screen display
+        afterActivation(0.5, token: token) {
+            let brightness = IDOScreenBrightnessModel(
+                level: 80,
+                opera: 1,
+                mode: 0,
+                autoAdjustNight: 0,
+                startHour: 0,
+                startMinute: 0,
+                endHour: 23,
+                endMinute: 59,
+                nightLevel: 30,
+                showInterval: 0
+            )
+            _ = Cmds.setScreenBrightness(brightness).send { res in
+                print("[IdoSmartManager] setScreenBrightness result: \(res)")
+            }
         }
 
         // Sequence 2 (0.3s): Set User Info (required for calorie & health calculations)
@@ -1039,26 +1046,28 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                             }
                         }
                     }
-                } else if fileURL.lastPathComponent == "v3_spo2" {
-                    if let data = try? Data(contentsOf: fileURL), data.count >= 2 {
-                        let bytes = [UInt8](data)
-                        let startIdx = ((bytes.count - 1) % 2 == 1) ? bytes.count - 1 : bytes.count - 2
-                        if startIdx >= 1 {
-                            for i in stride(from: startIdx, through: 1, by: -2) {
-                                let spo2 = Int(bytes[i])
-                                if (90...100).contains(spo2) {
-                                    DispatchQueue.main.async {
-                                        // Allow storage to update app if we haven't received a live streaming SpO2 in the last 15 seconds
-                                        if self.currentSpo2 < 90 || self.currentSpo2 == 0 || Date().timeIntervalSince(self.lastLiveSpo2Time) > 15 {
-                                            print("[IdoSmartManager] Found valid SpO2 in storage: \(spo2)%")
-                                            self.currentSpo2 = spo2
-                                            UserDefaults.standard.set(spo2, forKey: "last_spo2")
-                                            self.updateMetrics()
+                } else if fileURL.lastPathComponent == "v3_spo2" || fileURL.lastPathComponent == "v3_blood_oxygen" || fileURL.lastPathComponent == "spo2" {
+                    // Prevent stale historical data from overwriting live UI. Only read if current is 0, OR if file was recently modified by sync
+                    let modDate = (try? fileManager.attributesOfItem(atPath: fileURL.path))?[.modificationDate] as? Date ?? Date.distantPast
+                    if self.currentSpo2 == 0 || Date().timeIntervalSince(modDate) < 30 {
+                        if let data = try? Data(contentsOf: fileURL), data.count >= 2 {
+                            let bytes = [UInt8](data)
+                            let startIdx = ((bytes.count - 1) % 2 == 1) ? bytes.count - 1 : bytes.count - 2
+                            if startIdx >= 1 {
+                                for i in stride(from: startIdx, through: 1, by: -2) {
+                                    let spo2 = Int(bytes[i])
+                                    if (90...100).contains(spo2) {
+                                        DispatchQueue.main.async {
+                                            if self.currentSpo2 != spo2 {
+                                                print("[IdoSmartManager] Found fresh SpO2 in storage: \(spo2)%")
+                                                self.currentSpo2 = spo2
+                                                UserDefaults.standard.set(spo2, forKey: "last_spo2")
+                                                self.updateMetrics()
+                                            }
                                         }
+                                        break
                                     }
-                                    break
                                 }
-                            }
                         }
                     }
                 }
