@@ -19,7 +19,7 @@ class GoogleSheetSyncManager: ObservableObject {
 
     @Published var lastSyncTime: Date?
     @Published var isSyncing: Bool = false
-    @Published var lastSyncStatus: String = "Ù„Ù… ØªØªÙ… Ø§Ù„Ù…Ø²Ø§Ù…Ù†Ø© Ø¨Ø¹Ø¯"
+    @Published var lastSyncStatus: String = "لم تيم المزامنة بعد"
     @Published var isAutoSyncActive: Bool = false
     @Published var history: [SyncHistoryRecord] = []
 
@@ -156,7 +156,7 @@ class GoogleSheetSyncManager: ObservableObject {
         guard let url = URL(string: sheetUrlString) else {
             let err = NSError(domain: "GoogleSheetSync", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid Google Sheet URL"])
             DispatchQueue.main.async {
-                self.lastSyncStatus = "Ø®Ø·Ø£ ÙÙŠ Ø±Ø§Ø¨Ø· Google Sheets"
+                self.lastSyncStatus = "خشأ في رابط Google Sheets"
                 completion?(.failure(err))
             }
             return
@@ -201,7 +201,7 @@ class GoogleSheetSyncManager: ObservableObject {
             DispatchQueue.main.async {
                 self?.isSyncing = false
                 if let error = error {
-                    self?.lastSyncStatus = "ÙØ´Ù„ Ø§Ù„Ù…Ø²Ø§Ù…Ù†Ø©: \(error.localizedDescription)"
+                    self?.lastSyncStatus = "فشلت المزامنة: \(error.localizedDescription)"
                     print("[GoogleSheetSyncManager] Send failed: \(error.localizedDescription)")
                     completion?(.failure(error))
                     return

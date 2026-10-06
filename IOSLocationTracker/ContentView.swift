@@ -333,7 +333,7 @@ struct HistoryScreen: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            SPScreenHeader(kicker: "Ø§Ù„Ø³Ø¬Ù„", title: "Ø³Ø¬Ù„ Ø§Ù„Ù‚Ø±Ø§Ø¡Ø§Øª ÙˆØ§Ù„Ù…ÙˆÙ‚Ø¹")
+            SPScreenHeader(kicker: "السجل", title: "سجل القياسات والموق��")
                 .background(SP.Color.ground)
             
             // Map View for the Current Location
@@ -351,7 +351,7 @@ struct HistoryScreen: View {
                 VStack(spacing: 12) {
                     Image(systemName: "clock.arrow.circlepath")
                         .font(.system(size: 40))
-                        .foregroundStyle(SP.Color.muted)
+                    Text("لا ووجد سجل حتى الآ؄")
                     Text("Ù„Ø§ ÙŠÙˆØ¬Ø¯ Ø³Ø¬Ù„ Ø­ØªÙ‰ Ø§Ù„Ø¢Ù†")
                         .font(SP.Font.ui(14, .medium))
                         .foregroundStyle(SP.Color.muted)
