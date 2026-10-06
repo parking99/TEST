@@ -845,18 +845,24 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         }
 
         // 3. Query battery
-        let batt = Int(sdk.device.battLevel)
-        if (1...100).contains(batt) {
-            self.currentBattery = batt
-            UserDefaults.standard.set(batt, forKey: "last_battery")
-        }
         _ = Cmds.getBatteryInfo().send { [weak self] res in
             if case .success(let model) = res, let m = model {
                 let b = Int(m.level)
+                let isCharging = (m.status == 1 || m.status == 2)
                 if (1...100).contains(b) {
                     DispatchQueue.main.async {
-                        self?.currentBattery = b
-                        UserDefaults.standard.set(b, forKey: "last_battery")
+                        guard let self = self else { return }
+                        // Hysteresis: only accept increases if charging.
+                        // (Fuel gauges can fluctuate +/- 1% under load, so we prevent artificial jumping).
+                        if isCharging {
+                            self.currentBattery = b
+                        } else {
+                            // If not charging, only accept drops (or same value)
+                            if b <= self.currentBattery || self.currentBattery == 0 {
+                                self.currentBattery = b
+                            }
+                        }
+                        UserDefaults.standard.set(self.currentBattery, forKey: "last_battery")
                     }
                 }
             }
@@ -1301,8 +1307,12 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
             
             // If battery notification, parameter often contains the level
             if type == 1, let val = model.parameter?.intValue, (1...100).contains(val) {
-                self.currentBattery = val
-                UserDefaults.standard.set(val, forKey: "last_battery")
+                // If not charging (we don't know charging status here, assume not charging for safety),
+                // only accept drops to prevent fuel gauge flutter.
+                if val <= self.currentBattery || self.currentBattery == 0 {
+                    self.currentBattery = val
+                    UserDefaults.standard.set(val, forKey: "last_battery")
+                }
             }
             
             if type == 1 || type == 2 || type == 3 || type == 15 || type == 23 || type == 64 || type == 65 {
