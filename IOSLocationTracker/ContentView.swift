@@ -1,25 +1,26 @@
-//
+﻿//
 //  ContentView.swift
-//  SecurityPass — الواجهة الجديدة
+//  SecurityPass â€” Ø§Ù„ÙˆØ§Ø¬Ù‡Ø© Ø§Ù„Ø¬Ø¯ÙŠØ¯Ø©
 //
-//  يستبدل هذا الملف ContentView القديم بالكامل. لم يُمسّ أي مدير:
-//  IdoSmartManager و LocationManager و GoogleSheetSyncManager و
-//  BloodPressureAlgorithm تُستدعى بنفس أسمائها وتواقيعها الحالية.
+//  ÙŠØ³ØªØ¨Ø¯Ù„ Ù‡Ø°Ø§ Ø§Ù„Ù…Ù„Ù ContentView Ø§Ù„Ù‚Ø¯ÙŠÙ… Ø¨Ø§Ù„ÙƒØ§Ù…Ù„. Ù„Ù… ÙŠÙÙ…Ø³Ù‘ Ø£ÙŠ Ù…Ø¯ÙŠØ±:
+//  IdoSmartManager Ùˆ LocationManager Ùˆ GoogleSheetSyncManager Ùˆ
+//  BloodPressureAlgorithm ØªÙØ³ØªØ¯Ø¹Ù‰ Ø¨Ù†ÙØ³ Ø£Ø³Ù…Ø§Ø¦Ù‡Ø§ ÙˆØªÙˆØ§Ù‚ÙŠØ¹Ù‡Ø§ Ø§Ù„Ø­Ø§Ù„ÙŠØ©.
 //
 
 import SwiftUI
+import MapKit
 
 struct ContentView: View {
 
     @StateObject private var ido = IdoSmartManager.shared
     @StateObject private var location = LocationManager.shared
 
-    /// نفس مفتاح التخزين المستخدم في البناء الحالي.
+    /// Ù†ÙØ³ Ù…ÙØªØ§Ø­ Ø§Ù„ØªØ®Ø²ÙŠÙ† Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù… ÙÙŠ Ø§Ù„Ø¨Ù†Ø§Ø¡ Ø§Ù„Ø­Ø§Ù„ÙŠ.
     @AppStorage("WATCH_APP_DEFAULT") private var employeeId: String = "WATCH_001"
 
     @State private var tab: Tab = .status
 
-    enum Tab: Hashable { case status, devices, sos, identity }
+    enum Tab: Hashable { case status, history, devices, sos, identity }
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -47,17 +48,18 @@ struct ContentView: View {
     }
 }
 
-// MARK: - شريط التبويب
+// MARK: - Ø´Ø±ÙŠØ· Ø§Ù„ØªØ¨ÙˆÙŠØ¨
 
 struct SPTabBar: View {
     @Binding var selection: ContentView.Tab
 
     var body: some View {
         HStack(spacing: 4) {
-            item(.status,   "الحالة",  "shield",            SP.Color.accent)
-            item(.devices,  "الأجهزة", "dot.radiowaves.left.and.right", SP.Color.measure)
+            item(.status,   "Ø§Ù„Ø­Ø§Ù„Ø©",  "shield",            SP.Color.accent)
+            item(.history,  "Ø§Ù„Ø³Ø¬Ù„",   "clock",             SP.Color.ok)
+            item(.devices,  "Ø§Ù„Ø£Ø¬Ù‡Ø²Ø©", "dot.radiowaves.left.and.right", SP.Color.measure)
             item(.sos,      "SOS",     "exclamationmark.triangle", SP.Color.dangerText)
-            item(.identity, "الهوية",  "person.text.rectangle", SP.Color.accent)
+            item(.identity, "Ø§Ù„Ù‡ÙˆÙŠØ©",  "person.text.rectangle", SP.Color.accent)
         }
         .padding(.horizontal, 10)
         .padding(.top, 8)
@@ -69,7 +71,7 @@ struct SPTabBar: View {
     private func item(_ tab: ContentView.Tab, _ label: String,
                       _ icon: String, _ activeColor: Color) -> some View {
         let isActive = selection == tab
-        // SOS يبقى أحمر حتى وهو غير نشط — إنه تحذير لا عنصر تنقّل عادي.
+        // SOS ÙŠØ¨Ù‚Ù‰ Ø£Ø­Ù…Ø± Ø­ØªÙ‰ ÙˆÙ‡Ùˆ ØºÙŠØ± Ù†Ø´Ø· â€” Ø¥Ù†Ù‡ ØªØ­Ø°ÙŠØ± Ù„Ø§ Ø¹Ù†ØµØ± ØªÙ†Ù‚Ù‘Ù„ Ø¹Ø§Ø¯ÙŠ.
         let tint: Color = isActive ? activeColor
                         : (tab == .sos ? SP.Color.dangerText : SP.Color.muted)
 
@@ -89,7 +91,7 @@ struct SPTabBar: View {
     }
 }
 
-// MARK: - شاشة الحالة (متصل / منقطع)
+// MARK: - Ø´Ø§Ø´Ø© Ø§Ù„Ø­Ø§Ù„Ø© (Ù…ØªØµÙ„ / Ù…Ù†Ù‚Ø·Ø¹)
 
 struct StatusScreen: View {
     @ObservedObject var ido: IdoSmartManager
@@ -114,22 +116,22 @@ struct StatusScreen: View {
 
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 11),
                                     GridItem(.flexible(), spacing: 11)], spacing: 11) {
-                    SPMetricCard(title: "نسبة الأكسجين", value: connected ? text(ido.currentSpo2) : "—",
+                    SPMetricCard(title: "Ù†Ø³Ø¨Ø© Ø§Ù„Ø£ÙƒØ³Ø¬ÙŠÙ†", value: connected ? text(ido.currentSpo2) : "â€”",
                                  unit: "%", icon: "drop", iconColor: SP.Color.measure,
                                  isStale: !connected)
-                    SPMetricCard(title: "ضغط الدم", value: connected ? (ido.currentBloodPressure.isEmpty ? "—" : ido.currentBloodPressure) : "—",
+                    SPMetricCard(title: "Ø¶ØºØ· Ø§Ù„Ø¯Ù…", value: connected ? (ido.currentBloodPressure.isEmpty ? "â€”" : ido.currentBloodPressure) : "â€”",
                                  icon: "gauge.medium", iconColor: SP.Color.accent,
                                  isStale: !connected)
-                    SPMetricCard(title: "حرارة الجسم", value: connected ? temperatureText : "—",
-                                 unit: "°م", icon: "thermometer.medium",
+                    SPMetricCard(title: "Ø­Ø±Ø§Ø±Ø© Ø§Ù„Ø¬Ø³Ù…", value: connected ? temperatureText : "â€”",
+                                 unit: "Â°Ù…", icon: "thermometer.medium",
                                  iconColor: SP.Color.dangerText, isStale: !connected)
-                    SPMetricCard(title: "الخطوات", value: connected ? text(ido.currentSteps) : "—",
+                    SPMetricCard(title: "Ø§Ù„Ø®Ø·ÙˆØ§Øª", value: connected ? text(ido.currentSteps) : "â€”",
                                  icon: "figure.walk", iconColor: SP.Color.ok,
                                  isStale: !connected)
-                    SPMetricCard(title: "بطارية السوار", value: connected ? text(ido.currentBattery) : "—",
+                    SPMetricCard(title: "Ø¨Ø·Ø§Ø±ÙŠØ© Ø§Ù„Ø³ÙˆØ§Ø±", value: connected ? text(ido.currentBattery) : "â€”",
                                  unit: "%", icon: "battery.75", iconColor: SP.Color.muted,
                                  isStale: !connected)
-                    SPMetricCard(title: "الموقع", value: locationText,
+                    SPMetricCard(title: "Ø§Ù„Ù…ÙˆÙ‚Ø¹", value: locationText,
                                  icon: "location", iconColor: SP.Color.measure)
                 }
 
@@ -139,7 +141,7 @@ struct StatusScreen: View {
                     Button {
                         onNavigateToDevices?()
                     } label: {
-                        Label("البحث عن السوار يدويًا", systemImage: "magnifyingglass")
+                        Label("Ø§Ù„Ø¨Ø­Ø« Ø¹Ù† Ø§Ù„Ø³ÙˆØ§Ø± ÙŠØ¯ÙˆÙŠÙ‹Ø§", systemImage: "magnifyingglass")
                     }
                     .buttonStyle(SPPrimaryButton())
                     .padding(.top, 4)
@@ -150,10 +152,10 @@ struct StatusScreen: View {
         }
         .safeAreaInset(edge: .top) {
             SPScreenHeader(
-                kicker: "منصة راصد",
-                title: "القراءة الصحية",
+                kicker: "Ù…Ù†ØµØ© Ø±Ø§ØµØ¯",
+                title: "Ø§Ù„Ù‚Ø±Ø§Ø¡Ø© Ø§Ù„ØµØ­ÙŠØ©",
                 trailing: AnyView(
-                    SPStatusPill(text: fullyActive ? "متصل ونشِط" : (connected ? "متصل (جاري التنشيط)" : "غير متصل"),
+                    SPStatusPill(text: fullyActive ? "Ù…ØªØµÙ„ ÙˆÙ†Ø´ÙØ·" : (connected ? "Ù…ØªØµÙ„ (Ø¬Ø§Ø±ÙŠ Ø§Ù„ØªÙ†Ø´ÙŠØ·)" : "ØºÙŠØ± Ù…ØªØµÙ„"),
                                  color: fullyActive ? SP.Color.ok : (connected ? SP.Color.measure : SP.Color.dangerText))
                 )
             )
@@ -161,20 +163,20 @@ struct StatusScreen: View {
         }
     }
 
-    // MARK: أجزاء
+    // MARK: Ø£Ø¬Ø²Ø§Ø¡
 
     private var disconnectedBanner: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 9) {
                 Image(systemName: "antenna.radiowaves.left.and.right.slash")
                     .foregroundStyle(SP.Color.dangerText)
-                Text("تم قطع الاتصال بالسوار")
+                Text("ØªÙ… Ù‚Ø·Ø¹ Ø§Ù„Ø§ØªØµØ§Ù„ Ø¨Ø§Ù„Ø³ÙˆØ§Ø±")
                     .font(SP.Font.ui(14, .semibold))
                     .foregroundStyle(SP.Color.text)
                 Spacer(minLength: 0)
             }
             Text(ido.statusMessage.isEmpty
-                 ? "جارٍ البحث التلقائي لإعادة الاتصال فور رصد السوار المقترن."
+                 ? "Ø¬Ø§Ø±Ù Ø§Ù„Ø¨Ø­Ø« Ø§Ù„ØªÙ„Ù‚Ø§Ø¦ÙŠ Ù„Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„Ø§ØªØµØ§Ù„ ÙÙˆØ± Ø±ØµØ¯ Ø§Ù„Ø³ÙˆØ§Ø± Ø§Ù„Ù…Ù‚ØªØ±Ù†."
                  : ido.statusMessage)
                 .font(SP.Font.ui(12.5))
                 .lineSpacing(4)
@@ -197,16 +199,16 @@ struct StatusScreen: View {
                 Image(systemName: "heart")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(connected ? SP.Color.accent : SP.Color.muted)
-                Text(connected ? "نبض القلب — مباشر" : "نبض القلب — آخر قراءة")
+                Text(connected ? "Ù†Ø¨Ø¶ Ø§Ù„Ù‚Ù„Ø¨ â€” Ù…Ø¨Ø§Ø´Ø±" : "Ù†Ø¨Ø¶ Ø§Ù„Ù‚Ù„Ø¨ â€” Ø¢Ø®Ø± Ù‚Ø±Ø§Ø¡Ø©")
                     .font(SP.Font.ui(13, .semibold))
                     .foregroundStyle(connected ? SP.Color.text : SP.Color.muted)
                 Spacer(minLength: 0)
                 if connected {
-                    Text("تحديث كل ثانيتين")
+                    Text("ØªØ­Ø¯ÙŠØ« ÙƒÙ„ Ø«Ø§Ù†ÙŠØªÙŠÙ†")
                         .font(SP.Font.ui(11))
                         .foregroundStyle(SP.Color.muted)
                 } else {
-                    Text("قديمة")
+                    Text("Ù‚Ø¯ÙŠÙ…Ø©")
                         .font(SP.Font.ui(10, .semibold))
                         .foregroundStyle(SP.Color.accent)
                         .padding(.horizontal, 6).padding(.vertical, 2)
@@ -218,7 +220,7 @@ struct StatusScreen: View {
                 Text(text(ido.currentHeartRate))
                     .font(SP.Font.numeric(72))
                     .foregroundStyle(connected ? SP.Color.accent : SP.Color.dimmer)
-                Text("نبضة/دقيقة")
+                Text("Ù†Ø¨Ø¶Ø©/Ø¯Ù‚ÙŠÙ‚Ø©")
                     .font(SP.Font.ui(12))
                     .foregroundStyle(SP.Color.muted)
                     .padding(.bottom, 9)
@@ -247,11 +249,11 @@ struct StatusScreen: View {
                 bar(Color(hex: 0x1F4C94), 2); bar(SP.Color.line, 1)
             }
             HStack {
-                Text("هادئ").font(SP.Font.ui(10.5)).foregroundStyle(SP.Color.muted)
+                Text("Ù‡Ø§Ø¯Ø¦").font(SP.Font.ui(10.5)).foregroundStyle(SP.Color.muted)
                 Spacer()
-                Text("النطاق الآمن").font(SP.Font.ui(10.5, .semibold)).foregroundStyle(SP.Color.ok)
+                Text("Ø§Ù„Ù†Ø·Ø§Ù‚ Ø§Ù„Ø¢Ù…Ù†").font(SP.Font.ui(10.5, .semibold)).foregroundStyle(SP.Color.ok)
                 Spacer()
-                Text("مرتفع").font(SP.Font.ui(10.5)).foregroundStyle(SP.Color.muted)
+                Text("Ù…Ø±ØªÙØ¹").font(SP.Font.ui(10.5)).foregroundStyle(SP.Color.muted)
             }
         }
     }
@@ -268,16 +270,16 @@ struct StatusScreen: View {
                     Circle()
                         .fill(syncManager.isAutoSyncActive ? SP.Color.ok : SP.Color.muted)
                         .frame(width: 7, height: 7)
-                    Text(syncManager.isAutoSyncActive ? "إرسال تلقائي (كل دقيقة)" : "آخر إرسال وصل")
+                    Text(syncManager.isAutoSyncActive ? "Ø¥Ø±Ø³Ø§Ù„ ØªÙ„Ù‚Ø§Ø¦ÙŠ (ÙƒÙ„ Ø¯Ù‚ÙŠÙ‚Ø©)" : "Ø¢Ø®Ø± Ø¥Ø±Ø³Ø§Ù„ ÙˆØµÙ„")
                         .font(SP.Font.ui(11.5))
                         .foregroundStyle(SP.Color.muted)
                 }
-                Text(syncManager.lastSyncTime.map(Self.timeFormatter.string(from:)) ?? "—")
+                Text(syncManager.lastSyncTime.map(Self.timeFormatter.string(from:)) ?? "â€”")
                     .font(SP.Font.numeric(13))
                     .foregroundStyle(SP.Color.text)
             }
             Spacer(minLength: 0)
-            Button(syncManager.isSyncing ? "جارٍ الإرسال…" : "إرسال الآن") {
+            Button(syncManager.isSyncing ? "Ø¬Ø§Ø±Ù Ø§Ù„Ø¥Ø±Ø³Ø§Ù„â€¦" : "Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ø¢Ù†") {
                 send()
             }
             .font(SP.Font.ui(13, .semibold))
@@ -298,20 +300,20 @@ struct StatusScreen: View {
         )
     }
 
-    // MARK: منطق العرض فقط — الإرسال يمر بنفس المدير الحالي
+    // MARK: Ù…Ù†Ø·Ù‚ Ø§Ù„Ø¹Ø±Ø¶ ÙÙ‚Ø· â€” Ø§Ù„Ø¥Ø±Ø³Ø§Ù„ ÙŠÙ…Ø± Ø¨Ù†ÙØ³ Ø§Ù„Ù…Ø¯ÙŠØ± Ø§Ù„Ø­Ø§Ù„ÙŠ
 
     private func send() {
         syncManager.performAutoSync(force: true)
     }
 
-    private func text(_ value: Int) -> String { value > 0 ? "\(value)" : "—" }
+    private func text(_ value: Int) -> String { value > 0 ? "\(value)" : "â€”" }
 
     private var temperatureText: String {
-        ido.currentTemperature > 0 ? String(format: "%.1f", ido.currentTemperature) : "—"
+        ido.currentTemperature > 0 ? String(format: "%.1f", ido.currentTemperature) : "â€”"
     }
 
     private var locationText: String {
-        location.latitude == 0 && location.longitude == 0 ? "—" : "مُحدَّد"
+        location.latitude == 0 && location.longitude == 0 ? "â€”" : "Ù…ÙØ­Ø¯ÙŽÙ‘Ø¯"
     }
 
     private static let timeFormatter: DateFormatter = {
@@ -321,3 +323,125 @@ struct StatusScreen: View {
         return f
     }()
 }
+
+import SwiftUI
+
+struct HistoryScreen: View {
+    @ObservedObject var syncManager = GoogleSheetSyncManager.shared
+    @ObservedObject var location = LocationManager.shared
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            SPScreenHeader(kicker: "Ø§Ù„Ø³Ø¬Ù„", title: "Ø³Ø¬Ù„ Ø§Ù„Ù‚Ø±Ø§Ø¡Ø§Øª ÙˆØ§Ù„Ù…ÙˆÙ‚Ø¹")
+                .background(SP.Color.ground)
+            
+            // Map View for the Current Location
+            Map(coordinateRegion: .constant(MKCoordinateRegion(
+                center: CLLocationCoordinate2D(latitude: location.latitude == 0 ? 24.7136 : location.latitude, longitude: location.longitude == 0 ? 46.6753 : location.longitude),
+                span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
+            )), annotationItems: [LocationAnnotation(latitude: location.latitude, longitude: location.longitude)]) { item in
+                MapMarker(coordinate: item.coordinate, tint: SP.Color.accent)
+            }
+            .frame(height: 250)
+            .cornerRadius(SP.Metric.controlRadius)
+            .padding()
+            
+            if syncManager.history.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 40))
+                        .foregroundStyle(SP.Color.muted)
+                    Text("Ù„Ø§ ÙŠÙˆØ¬Ø¯ Ø³Ø¬Ù„ Ø­ØªÙ‰ Ø§Ù„Ø¢Ù†")
+                        .font(SP.Font.ui(14, .medium))
+                        .foregroundStyle(SP.Color.muted)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List(syncManager.history) { record in
+                    HistoryRow(record: record)
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                        .listRowSeparator(.hidden)
+                }
+                .listStyle(.plain)
+            }
+        }
+        .background(SP.Color.ground.ignoresSafeArea())
+    }
+}
+
+struct LocationAnnotation: Identifiable {
+    let id = UUID()
+    let latitude: Double
+    let longitude: Double
+    var coordinate: CLLocationCoordinate2D {
+        CLLocationCoordinate2D(latitude: latitude == 0 ? 24.7136 : latitude, longitude: longitude == 0 ? 46.6753 : longitude)
+    }
+}
+
+struct HistoryRow: View {
+    let record: SyncHistoryRecord
+    
+    private static let formatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d, HH:mm"
+        f.locale = Locale(identifier: "ar")
+        return f
+    }()
+    
+    var body: some View {
+        VStack(spacing: 8) {
+            HStack {
+                Text(HistoryRow.formatter.string(from: record.timestamp))
+                    .font(SP.Font.ui(12, .semibold))
+                    .foregroundStyle(SP.Color.text)
+                Spacer()
+                if record.isSos {
+                    Text("Ø­Ø§Ù„Ø© Ø·ÙˆØ§Ø±Ø¦")
+                        .font(SP.Font.ui(10, .bold))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(SP.Color.dangerText.opacity(0.2))
+                        .foregroundStyle(SP.Color.dangerText)
+                        .cornerRadius(4)
+                } else {
+                    Text("Ù…Ø²Ø§Ù…Ù†Ø© Ø¯ÙˆØ±ÙŠØ©")
+                        .font(SP.Font.ui(10, .medium))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(SP.Color.ok.opacity(0.2))
+                        .foregroundStyle(SP.Color.ok)
+                        .cornerRadius(4)
+                }
+            }
+            
+            HStack(spacing: 12) {
+                MetricMini(icon: "heart.fill", value: "\(record.heartRate)", color: SP.Color.dangerText)
+                MetricMini(icon: "drop.fill", value: "\(record.spo2)%", color: SP.Color.measure)
+                MetricMini(icon: "battery.100", value: "\(record.battery)%", color: SP.Color.ok)
+                MetricMini(icon: "location.fill", value: "Ù…ÙØ­ÙŽØ¯Ù‘ÙŽØ«", color: SP.Color.accent)
+            }
+        }
+        .padding()
+        .background(SP.Color.surface)
+        .cornerRadius(SP.Metric.controlRadius)
+    }
+}
+
+struct MetricMini: View {
+    let icon: String
+    let value: String
+    let color: Color
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.system(size: 10))
+                .foregroundStyle(color)
+            Text(value)
+                .font(SP.Font.ui(12, .semibold))
+                .foregroundStyle(SP.Color.text)
+        }
+    }
+}
+
+

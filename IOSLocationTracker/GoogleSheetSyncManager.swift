@@ -1,5 +1,16 @@
-import Foundation
+﻿import Foundation
 
+struct SyncHistoryRecord: Codable, Identifiable {
+    var id: UUID = UUID()
+    let timestamp: Date
+    let heartRate: Int
+    let spo2: Int
+    let bloodPressure: String
+    let battery: Int
+    let latitude: Double
+    let longitude: Double
+    let isSos: Bool
+}
 class GoogleSheetSyncManager: ObservableObject {
     static let shared = GoogleSheetSyncManager()
     
@@ -8,8 +19,9 @@ class GoogleSheetSyncManager: ObservableObject {
 
     @Published var lastSyncTime: Date?
     @Published var isSyncing: Bool = false
-    @Published var lastSyncStatus: String = "لم تتم المزامنة بعد"
+    @Published var lastSyncStatus: String = "Ù„Ù… ØªØªÙ… Ø§Ù„Ù…Ø²Ø§Ù…Ù†Ø© Ø¨Ø¹Ø¯"
     @Published var isAutoSyncActive: Bool = false
+    @Published var history: [SyncHistoryRecord] = []
 
     private var autoSyncTimer: Timer?
     private var lastSyncAttemptTime: Date = .distantPast
@@ -22,6 +34,11 @@ class GoogleSheetSyncManager: ObservableObject {
 
         if let savedDate = UserDefaults.standard.object(forKey: "last_google_sheet_sync_time") as? Date {
             self.lastSyncTime = savedDate
+        }
+
+        if let data = UserDefaults.standard.data(forKey: "sync_history_logs"),
+           let savedHistory = try? JSONDecoder().decode([SyncHistoryRecord].self, from: data) {
+            self.history = savedHistory
         }
     }
 
@@ -43,7 +60,7 @@ class GoogleSheetSyncManager: ObservableObject {
     func startAutoSyncTimer() {
         stopAutoSyncTimer()
         isAutoSyncActive = true
-        print("[GoogleSheetSyncManager] Starting auto-sync timer (every 60 seconds) ⏱️")
+        print("[GoogleSheetSyncManager] Starting auto-sync timer (every 60 seconds) â±ï¸")
 
         // Initial sync after 3 seconds
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
@@ -139,7 +156,7 @@ class GoogleSheetSyncManager: ObservableObject {
         guard let url = URL(string: sheetUrlString) else {
             let err = NSError(domain: "GoogleSheetSync", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid Google Sheet URL"])
             DispatchQueue.main.async {
-                self.lastSyncStatus = "خطأ في رابط Google Sheets"
+                self.lastSyncStatus = "Ø®Ø·Ø£ ÙÙŠ Ø±Ø§Ø¨Ø· Google Sheets"
                 completion?(.failure(err))
             }
             return
@@ -174,7 +191,7 @@ class GoogleSheetSyncManager: ObservableObject {
         } catch {
             DispatchQueue.main.async {
                 self.isSyncing = false
-                self.lastSyncStatus = "خطأ في ترميز البيانات"
+                self.lastSyncStatus = "Ø®Ø·Ø£ ÙÙŠ ØªØ±Ù…ÙŠØ² Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª"
                 completion?(.failure(error))
             }
             return
@@ -184,7 +201,7 @@ class GoogleSheetSyncManager: ObservableObject {
             DispatchQueue.main.async {
                 self?.isSyncing = false
                 if let error = error {
-                    self?.lastSyncStatus = "فشل المزامنة: \(error.localizedDescription)"
+                    self?.lastSyncStatus = "ÙØ´Ù„ Ø§Ù„Ù…Ø²Ø§Ù…Ù†Ø©: \(error.localizedDescription)"
                     print("[GoogleSheetSyncManager] Send failed: \(error.localizedDescription)")
                     completion?(.failure(error))
                     return
@@ -193,12 +210,24 @@ class GoogleSheetSyncManager: ObservableObject {
                 let respString = data != nil ? String(data: data!, encoding: .utf8) ?? "OK" : "OK"
                 let successDate = Date()
                 self?.lastSyncTime = successDate
-                self?.lastSyncStatus = "تمت المزامنة بنجاح ✅"
+                self?.lastSyncStatus = "ØªÙ…Øª Ø§Ù„Ù…Ø²Ø§Ù…Ù†Ø© Ø¨Ù†Ø¬Ø§Ø­ âœ…"
                 UserDefaults.standard.set(successDate, forKey: "last_google_sheet_sync_time")
                 print("[GoogleSheetSyncManager] Measurements sent successfully to Google Sheets at \(successDate)")
+                                let record = SyncHistoryRecord(timestamp: successDate, heartRate: heartRate, spo2: spo2, bloodPressure: bloodPressure, battery: battery, latitude: latitude, longitude: longitude, isSos: isSos)
+                self?.history.insert(record, at: 0)
+                if (self?.history.count ?? 0) > 50 {
+                    self?.history.removeLast((self?.history.count ?? 0) - 50)
+                }
+                if let historyData = try? JSONEncoder().encode(self?.history) {
+                    UserDefaults.standard.set(historyData, forKey: "sync_history_logs")
+                }
                 completion?(.success(respString))
             }
         }
         task.resume()
     }
 }
+
+
+
+
