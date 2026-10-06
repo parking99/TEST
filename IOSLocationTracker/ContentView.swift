@@ -55,12 +55,12 @@ struct SPTabBar: View {
     @Binding var selection: ContentView.Tab
 
     var body: some View {
-        HStack(spacing: 4) {
-            item(.status,   "Ø§Ù„Ø­Ø§Ù„Ø©",  "shield",            SP.Color.accent)
-            item(.history,  "Ø§Ù„Ø³Ø¬Ù„",   "clock",             SP.Color.ok)
-            item(.devices,  "Ø§Ù„Ø£Ø¬Ù‡Ø²Ø©", "dot.radiowaves.left.and.right", SP.Color.measure)
+                HStack(spacing: 4) {
+            item(.status,   "الحالة",  "shield",            SP.Color.accent)
+            item(.history,  "السجل",   "clock",             SP.Color.ok)
+            item(.devices,  "الأجهزة", "dot.radiowaves.left.and.right", SP.Color.measure)
             item(.sos,      "SOS",     "exclamationmark.triangle", SP.Color.dangerText)
-            item(.identity, "Ø§Ù„Ù‡ÙˆÙŠØ©",  "person.text.rectangle", SP.Color.accent)
+            item(.identity, "الهوية",  "person.text.rectangle", SP.Color.accent)
         }
         .padding(.horizontal, 10)
         .padding(.top, 8)

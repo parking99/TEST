@@ -1158,7 +1158,14 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                 }
             }
             
-        // Health sync is strictly event-driven via dataType = 19 to avoid jamming the BLE MTU during live HR.
+        healthSyncTimer?.cancel()
+        healthSyncTimer = Timer.publish(every: 60, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                if self?.isConnected == true && self?.isActivated == true {
+                    self?.syncHealthData()
+                }
+            }
     }
 
     private func stopPeriodicSync() {
