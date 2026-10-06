@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import MapKit
 
 struct IdentityScreen: View {
     @ObservedObject var ido: IdoSmartManager
@@ -49,6 +50,36 @@ struct IdentityScreen: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .spCard(padding: 16, radius: 16)
+                // MARK: - Map View
+                VStack(alignment: .leading, spacing: 9) {
+                    Text("موقع العامل الميداني")
+                        .font(SP.Font.ui(13, .semibold))
+                        .foregroundStyle(SP.Color.text)
+
+                    if let coord = location.location?.coordinate {
+                        Map(coordinateRegion: .constant(MKCoordinateRegion(center: coord, span: MKCoordinateSpan(latitudeDelta: 0.005, longitudeDelta: 0.005))), interactionModes: .all, annotationItems: [MapLocation(coord: coord)]) { place in
+                            MapMarker(coordinate: place.coord, tint: SP.Color.danger)
+                        }
+                        .frame(height: 180)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(SP.Color.lineStrong, lineWidth: 1)
+                        )
+                    } else {
+                        VStack(spacing: 8) {
+                            ProgressView()
+                            Text("جاري تحديد الموقع...")
+                                .font(SP.Font.ui(12))
+                                .foregroundStyle(SP.Color.muted)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 180)
+                        .background(SP.Color.ground)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                }
+                .spCard(padding: 16, radius: 16)
+
 
                 HStack {
                     HStack(spacing: 6) {
@@ -126,4 +157,9 @@ struct IdentityScreen: View {
         f.dateFormat = "hh:mm a"
         return f
     }()
+}
+
+struct MapLocation: Identifiable {
+    let id = UUID()
+    let coord: CLLocationCoordinate2D
 }

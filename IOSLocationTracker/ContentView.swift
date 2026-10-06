@@ -1216,17 +1216,40 @@ public struct HistoryScreen: View {
 
     // MARK: الأجزاء
 
+    
+    @State private var exportItem: ExportItem?
+
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("تحليل آخر ٦ ساعات · \(employeeID)")
-                .font(.system(size: 14))
-                .foregroundColor(SP.Color.muted)
-            Text("السجل الصحي")
-                .font(.system(size: 32, weight: .bold))
-                .foregroundColor(SP.Color.text)
+        HStack {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("تحليل آخر ٦ ساعات · \(employeeID)")
+                    .font(.system(size: 14))
+                    .foregroundColor(SP.Color.muted)
+                Text("السجل الصحي")
+                    .font(.system(size: 32, weight: .bold))
+                    .foregroundColor(SP.Color.text)
+            }
+            Spacer()
+            Button {
+                if let url = PDFExportManager.generatePDF(employeeID: employeeID, assessment: assessment, forecast: forecast, samples: samples) {
+                    exportItem = ExportItem(url: url)
+                }
+            } label: {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.system(size: 20))
+                    .foregroundColor(SP.Color.accent)
+                    .padding(10)
+                    .background(SP.Color.card)
+                    .clipShape(Circle())
+                    .shadow(color: SP.Color.raised.opacity(0.3), radius: 4, x: 0, y: 2)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .sheet(item: $exportItem) { item in
+            ShareSheet(items: [item.url])
+        }
     }
+
 
     private var emptyState: some View {
         VStack(spacing: 12) {
@@ -1820,4 +1843,168 @@ private func cardBackground(radius: CGFloat = 20, border: Color) -> some View {
             RoundedRectangle(cornerRadius: radius, style: .continuous)
                 .stroke(border, lineWidth: 1)
         )
+}
+
+
+
+// MARK: - PDF Export & Dashboard
+
+import UIKit
+
+struct ExportItem: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
+struct ShareSheet: UIViewControllerRepresentable {
+    var items: [Any]
+    
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+    
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
+@MainActor
+class PDFExportManager {
+    static func generatePDF(employeeID: String, assessment: HealthAssessment, forecast: ForecastResult, samples: [VitalSample]) -> URL? {
+        let pdfView = DashboardPDFView(employeeID: employeeID, assessment: assessment, forecast: forecast, samples: samples)
+        let hostingController = UIHostingController(rootView: pdfView)
+        
+        let pageSize = CGSize(width: 595.2, height: 841.8)
+        hostingController.view.frame = CGRect(origin: .zero, size: pageSize)
+        
+        let format = UIGraphicsPDFRendererFormat()
+        let renderer = UIGraphicsPDFRenderer(bounds: CGRect(origin: .zero, size: pageSize), format: format)
+        
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("Health_Report_\(employeeID).pdf")
+        
+        do {
+            try renderer.writePDF(to: tempURL, withActions: { context in
+                context.beginPage()
+                hostingController.view.layer.render(in: context.cgContext)
+            })
+            return tempURL
+        } catch {
+            return nil
+        }
+    }
+}
+
+struct DashboardPDFView: View {
+    let employeeID: String
+    let assessment: HealthAssessment
+    let forecast: ForecastResult
+    let samples: [VitalSample]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            HStack {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("تقرير السجل الصحي")
+                        .font(.system(size: 32, weight: .bold))
+                    Text("العامل الميداني: \(employeeID)")
+                        .font(.system(size: 16))
+                        .foregroundColor(.gray)
+                }
+                Spacer()
+                Text(DateFormatter.localizedString(from: Date(), dateStyle: .medium, timeStyle: .short))
+                    .font(.system(size: 14))
+                    .foregroundColor(.gray)
+            }
+            
+            Divider().background(Color.gray)
+
+            HStack(spacing: 24) {
+                VStack {
+                    Text("\(assessment.score)")
+                        .font(.system(size: 48, weight: .bold))
+                    Text("من ١٠٠")
+                        .font(.system(size: 14))
+                }
+                .frame(width: 120, height: 120)
+                .background(assessment.band.color.opacity(0.15))
+                .cornerRadius(16)
+                .overlay(RoundedRectangle(cornerRadius: 16).stroke(assessment.band.color, lineWidth: 2))
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("الحالة الحالية: \(assessment.band.title)")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundColor(assessment.band.color)
+                    Text(assessment.headline)
+                        .font(.system(size: 15))
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Text("ملخص المؤشرات الحيوية")
+                .font(.system(size: 18, weight: .bold))
+                .padding(.top, 10)
+
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
+                ForEach(assessment.indicators, id: \.kind) { indicator in
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(indicator.kind.title)
+                            .font(.system(size: 16, weight: .semibold))
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(indicator.display)
+                                .font(.system(size: 28, weight: .bold))
+                            Text(indicator.kind.unit)
+                                .font(.system(size: 12))
+                                .foregroundColor(.gray)
+                        }
+                        Text(indicator.band.title)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(indicator.band.color)
+                    }
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.gray.opacity(0.08))
+                    .cornerRadius(12)
+                }
+            }
+
+            Divider().background(Color.gray).padding(.top, 10)
+
+            Text("سجل القراءات السابقة (آخر القراءات)")
+                .font(.system(size: 18, weight: .bold))
+            
+            VStack(spacing: 0) {
+                ForEach(samples.sorted(by: { $0.sampleDate > $1.sampleDate }).prefix(20), id: \.sampleDate) { sample in
+                    HStack {
+                        Text(timeString(sample.sampleDate))
+                            .font(.system(size: 12, weight: .bold))
+                            .frame(width: 70, alignment: .leading)
+                        Spacer()
+                        if let hr = sample.vHeartRate { Text("نبض: \(hr)").frame(width: 70, alignment: .leading) }
+                        Spacer()
+                        if let o = sample.vSpo2 { Text("أكسجين: \(o)%").frame(width: 80, alignment: .leading) }
+                        Spacer()
+                        if let s = sample.systolic, let d = sample.diastolic { Text("ضغط: \(s)/\(d)").frame(width: 80, alignment: .leading) }
+                        Spacer()
+                        if let t = sample.bodyTemp { Text("حرارة: \(String(format: "%.1f", t))").frame(width: 70, alignment: .leading) }
+                    }
+                    .font(.system(size: 12))
+                    .padding(.vertical, 8)
+                    Divider()
+                }
+            }
+
+            Spacer()
+        }
+        .padding(40)
+        .frame(width: 595.2, height: 841.8)
+        .background(Color.white)
+        .foregroundColor(.black)
+        .environment(\.layoutDirection, .rightToLeft)
+    }
+
+    private func timeString(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "ar_SA")
+        f.dateFormat = "hh:mm a"
+        return f.string(from: date)
+    }
 }
