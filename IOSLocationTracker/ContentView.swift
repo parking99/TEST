@@ -1154,6 +1154,8 @@ public struct HistoryScreen: View {
     public var employeeID: String
     public var onSelect: (VitalSample) -> Void
 
+    @State private var selectedIndicator: IndicatorReading?
+
     public init(samples: [VitalSample],
                 employeeID: String,
                 onSelect: @escaping (VitalSample) -> Void = { _ in }) {
@@ -1166,8 +1168,32 @@ public struct HistoryScreen: View {
     private var forecast: ForecastResult { HealthEngine.forecast(samples) }
 
     public var body: some View {
+        ZStack {
+            SP.Color.ground.ignoresSafeArea()
+            
+            if let selected = selectedIndicator {
+                IndicatorDetailScreen(
+                    indicator: selected,
+                    samples: samples,
+                    config: HealthThresholds.default,
+                    onBack: {
+                        withAnimation(.spring()) {
+                            selectedIndicator = nil
+                        }
+                    }
+                )
+                .transition(.move(edge: .leading))
+            } else {
+                mainContent
+                    .transition(.move(edge: .trailing))
+            }
+        }
+        .environment(\.layoutDirection, .rightToLeft)
+    }
+
+    private var mainContent: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 20) {
                 header
 
                 if assessment.isEmpty {
@@ -1183,61 +1209,70 @@ public struct HistoryScreen: View {
                 disclaimer
             }
             .padding(.horizontal, 20)
-            .padding(.top, 8)
-            .padding(.bottom, 24)
+            .padding(.top, 12)
+            .padding(.bottom, 32)
         }
-        .background(SP.Color.ground.ignoresSafeArea())
-        .environment(\.layoutDirection, .rightToLeft)
     }
 
     // MARK: الأجزاء
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             Text("تحليل آخر ٦ ساعات · \(employeeID)")
-                .font(.system(size: 13))
+                .font(.system(size: 14))
                 .foregroundColor(SP.Color.muted)
             Text("السجل الصحي")
-                .font(.system(size: 30, weight: .bold))
+                .font(.system(size: 32, weight: .bold))
                 .foregroundColor(SP.Color.text)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var emptyState: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 12) {
+            Image(systemName: "waveform.path.ecg")
+                .font(.system(size: 40))
+                .foregroundColor(SP.Color.dim)
             Text("لا يوجد سجل حتى الآن")
-                .font(.system(size: 16, weight: .semibold))
+                .font(.system(size: 18, weight: .semibold))
                 .foregroundColor(SP.Color.text)
             Text("سيبدأ التقييم تلقائياً بعد وصول أول قراءات من السوار.")
-                .font(.system(size: 13))
+                .font(.system(size: 14))
                 .foregroundColor(SP.Color.muted)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 48)
-        .background(card)
+        .padding(.vertical, 60)
+        .background(cardBackground(border: SP.Color.raised))
     }
 
     private func sectionTitle(_ title: String, trailing: String?) -> some View {
-        HStack {
+        HStack(alignment: .bottom) {
             Text(title)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: 17, weight: .bold))
                 .foregroundColor(SP.Color.text)
             Spacer()
-            if let trailing {
+            if let trailing = trailing {
                 Text(trailing)
-                    .font(.system(size: 12))
+                    .font(.system(size: 13))
                     .foregroundColor(SP.Color.muted)
             }
         }
+        .padding(.top, 8)
     }
 
     private var metricsGrid: some View {
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: 12),
-                            GridItem(.flexible(), spacing: 12)], spacing: 12) {
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: 14),
+                            GridItem(.flexible(), spacing: 14)], spacing: 14) {
             ForEach(assessment.indicators.filter { $0.kind != .stability }, id: \.kind) { indicator in
-                MetricCard(indicator: indicator, series: series(for: indicator.kind))
+                Button {
+                    withAnimation(.spring()) {
+                        selectedIndicator = indicator
+                    }
+                } label: {
+                    MetricCard(indicator: indicator, series: series(for: indicator.kind))
+                }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -1252,14 +1287,17 @@ public struct HistoryScreen: View {
                 Divider().overlay(SP.Color.raised)
             }
         }
-        .background(card)
+        .background(cardBackground(border: SP.Color.raised))
     }
 
     private var disclaimer: some View {
         Text("تقييم إرشادي لسلامة العامل الميداني، مبني على قراءات السوار فقط. ليس تشخيصاً طبياً ولا بديلاً عن مراجعة الطبيب.")
-            .font(.system(size: 11))
+            .font(.system(size: 12))
             .lineSpacing(4)
-            .foregroundColor(SP.Color.muted)
+            .foregroundColor(SP.Color.dim)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .padding(.top, 8)
     }
 
     // MARK: بيانات مساعدة
@@ -1278,15 +1316,6 @@ public struct HistoryScreen: View {
         case .stability: return []
         }
     }
-
-    private var card: some View {
-        RoundedRectangle(cornerRadius: 20, style: .continuous)
-            .fill(SP.Color.card)
-            .overlay(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(SP.Color.raised, lineWidth: 1)
-            )
-    }
 }
 
 // MARK: - بطاقة التقييم العام
@@ -1295,68 +1324,58 @@ private struct ScoreCard: View {
     let assessment: HealthAssessment
 
     var body: some View {
-        VStack(spacing: 16) {
-            HStack(alignment: .center, spacing: 16) {
-                ZStack {
-                    Circle()
-                        .stroke(SP.Color.raised, lineWidth: 12)
-                    Circle()
-                        .trim(from: 0, to: CGFloat(assessment.score) / 100)
-                        .stroke(assessment.band.color,
-                                style: StrokeStyle(lineWidth: 12, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
-                    VStack(spacing: 2) {
-                        Text("\(assessment.score)")
-                            .font(.system(size: 38, weight: .semibold, design: .monospaced))
+        HStack(spacing: 24) {
+            ZStack {
+                Circle()
+                    .stroke(SP.Color.raised, lineWidth: 8)
+                Circle()
+                    .trim(from: 0, to: CGFloat(assessment.score) / 100)
+                    .stroke(assessment.band.color,
+                            style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                
+                VStack(spacing: 0) {
+                    Text("\(assessment.score)")
+                        .font(.system(size: 34, weight: .bold, design: .monospaced))
+                        .foregroundColor(SP.Color.text)
+                    Text("من ١٠٠")
+                        .font(.system(size: 11))
+                        .foregroundColor(SP.Color.muted)
+                }
+            }
+            .frame(width: 90, height: 90)
+            .shadow(color: assessment.band.color.opacity(0.3), radius: 12, x: 0, y: 0)
+
+            VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("الحالة الحالية")
+                        .font(.system(size: 13))
+                        .foregroundColor(SP.Color.muted)
+                    HStack(spacing: 8) {
+                        Circle().fill(assessment.band.color).frame(width: 8, height: 8)
+                        Text(assessment.band.title)
+                            .font(.system(size: 18, weight: .bold))
                             .foregroundColor(SP.Color.text)
-                        Text("من ١٠٠")
-                            .font(.system(size: 11))
-                            .foregroundColor(SP.Color.muted)
                     }
                 }
-                .frame(width: 124, height: 124)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    StatusPill(text: assessment.band.title, color: assessment.band.color)
-                    Text(assessment.headline)
-                        .font(.system(size: 13))
-                        .lineSpacing(4)
-                        .foregroundColor(SP.Color.text)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 0)
+                
+                Text(assessment.headline)
+                    .font(.system(size: 13))
+                    .lineSpacing(3)
+                    .foregroundColor(SP.Color.dim)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-
-            Divider().overlay(SP.Color.raised)
-
-            HStack {
-                stat("دقة التقييم", "\(Int(assessment.coverage * 100))%")
-                Spacer()
-                stat("القراءات", "\(assessment.sampleCount)")
-                Spacer()
-                stat("آخر تحديث", assessment.updatedAt.map(Self.time) ?? "—")
-            }
+            Spacer(minLength: 0)
         }
-        .padding(18)
-        .background(cardBackground(border: assessment.band.color.opacity(0.38)))
-    }
-
-    private func stat(_ label: String, _ value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(label)
-                .font(.system(size: 11))
-                .foregroundColor(SP.Color.muted)
-            Text(value)
-                .font(.system(size: 14, weight: .medium, design: .monospaced))
-                .foregroundColor(SP.Color.text)
-        }
-    }
-
-    static func time(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "ar_SA")
-        f.dateFormat = "hh:mm a"
-        return f.string(from: date)
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(LinearGradient(colors: [SP.Color.card, SP.Color.navBar], startPoint: .topLeading, endPoint: .bottomTrailing))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(SP.Color.raised, lineWidth: 1)
+                )
+        )
     }
 }
 
@@ -1366,80 +1385,58 @@ private struct ForecastCard: View {
     let forecast: ForecastResult
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Label {
-                    Text("التنبؤ · الساعة القادمة")
-                        .font(.system(size: 15, weight: .semibold))
+                    Text("تنبؤ بالحالة")
+                        .font(.system(size: 16, weight: .bold))
                         .foregroundColor(SP.Color.text)
                 } icon: {
-                    Image(systemName: "chart.line.uptrend.xyaxis")
+                    Image(systemName: "sparkles")
                         .foregroundColor(SP.Color.caution)
                 }
                 Spacer()
-                Text(confidenceLabel)
-                    .font(.system(size: 11))
-                    .foregroundColor(SP.Color.muted)
             }
 
             if forecast.insufficientCoverage {
-                Text("تغطية القراءات غير كافية لإصدار تنبؤ. تأكد من اتصال السوار واستمرار الإرسال.")
-                    .font(.system(size: 12))
-                    .lineSpacing(4)
+                Text("تغطية القراءات غير كافية لإصدار تنبؤ.")
+                    .font(.system(size: 14))
                     .foregroundColor(SP.Color.muted)
             } else if let top = forecast.risks.first {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text("احتمال \(top.name)")
-                            .font(.system(size: 14))
-                            .foregroundColor(SP.Color.text)
-                        Spacer()
-                        Text("\(Int(top.probability * 100))%")
-                            .font(.system(size: 16, weight: .semibold, design: .monospaced))
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .bottom) {
+                        Text(top.name)
+                            .font(.system(size: 16, weight: .semibold))
                             .foregroundColor(top.level.color)
+                        Spacer()
+                        Text("احتمال \(Int(top.probability * 100))%")
+                            .font(.system(size: 15, weight: .bold, design: .monospaced))
+                            .foregroundColor(SP.Color.text)
                     }
-                    ProgressBar(value: top.probability, color: top.level.color)
+                    
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(SP.Color.raised)
+                            Capsule().fill(LinearGradient(colors: [top.level.color.opacity(0.5), top.level.color], startPoint: .leading, endPoint: .trailing))
+                                .frame(width: geo.size.width * CGFloat(min(max(top.probability, 0), 1)))
+                        }
+                    }
+                    .frame(height: 6)
+
                     Text(top.why)
-                        .font(.system(size: 12))
+                        .font(.system(size: 13))
                         .lineSpacing(4)
                         .foregroundColor(SP.Color.muted)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-
-                if forecast.risks.count > 1 {
-                    Divider().overlay(SP.Color.raised)
-                    HStack(spacing: 10) {
-                        ForEach(forecast.risks.dropFirst().prefix(2)) { risk in
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(risk.name)
-                                    .font(.system(size: 11))
-                                    .foregroundColor(SP.Color.muted)
-                                HStack(spacing: 6) {
-                                    Circle().fill(risk.level.color).frame(width: 7, height: 7)
-                                    Text("\(Int(risk.probability * 100))%")
-                                        .font(.system(size: 13, design: .monospaced))
-                                        .foregroundColor(SP.Color.text)
-                                    Text(risk.level.title)
-                                        .font(.system(size: 11))
-                                        .foregroundColor(SP.Color.muted)
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-                }
+            } else {
+                Text("جميع المؤشرات مستقرة للساعة القادمة.")
+                    .font(.system(size: 14))
+                    .foregroundColor(SP.Color.ok)
             }
         }
         .padding(18)
-        .background(cardBackground(border: SP.Color.raised))
-    }
-
-    private var confidenceLabel: String {
-        switch forecast.coverage {
-        case 0.8...: return "ثقة عالية"
-        case 0.5..<0.8: return "ثقة متوسطة"
-        default: return "ثقة منخفضة"
-        }
+        .background(cardBackground(radius: 20, border: SP.Color.raised))
     }
 }
 
@@ -1450,54 +1447,277 @@ private struct MetricCard: View {
     let series: [Double]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Text(indicator.kind.title)
-                    .font(.system(size: 12))
-                    .foregroundColor(SP.Color.muted)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(SP.Color.text)
                 Spacer()
                 Image(systemName: icon)
-                    .font(.system(size: 13))
+                    .font(.system(size: 15))
                     .foregroundColor(indicator.band.color)
             }
+            
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(indicator.display)
-                    .font(.system(size: 28, weight: .semibold, design: .monospaced))
-                    .foregroundColor(SP.Color.text)
+                    .font(.system(size: 30, weight: .bold, design: .monospaced))
+                    .foregroundColor(indicator.band == .critical ? SP.Color.dangerText : SP.Color.text)
                 Text(indicator.kind.unit)
-                    .font(.system(size: 11))
+                    .font(.system(size: 12))
                     .foregroundColor(SP.Color.muted)
             }
 
             Sparkline(values: series)
-                .stroke(indicator.band.color, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-                .frame(height: 28)
+                .stroke(
+                    LinearGradient(colors: [indicator.band.color.opacity(0.3), indicator.band.color], startPoint: .leading, endPoint: .trailing),
+                    style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round)
+                )
+                .frame(height: 34)
 
-            HStack(spacing: 6) {
-                Text(indicator.band.title)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(indicator.band.color)
+            HStack(spacing: 8) {
+                StatusPill(text: indicator.band.title, color: indicator.band.color)
+                Spacer()
                 if let trend = indicator.trend, abs(trend.slopePerMinute) > 0.001 {
-                    Text(trend.slopePerMinute > 0 ? "صاعد" : "هابط")
-                        .font(.system(size: 11))
+                    Text(trend.slopePerMinute > 0 ? "صاعد ↗" : "هابط ↘")
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundColor(SP.Color.muted)
                 }
             }
         }
-        .padding(14)
-        .background(cardBackground(radius: 18, border: indicator.band == .normal
+        .padding(16)
+        .background(cardBackground(radius: 20, border: indicator.band == .normal
                                    ? SP.Color.raised
-                                   : indicator.band.color.opacity(0.38)))
+                                   : indicator.band.color.opacity(0.5)))
     }
 
     private var icon: String {
         switch indicator.kind {
-        case .heartRate: return "heart"
-        case .spo2: return "drop"
+        case .heartRate: return "heart.fill"
+        case .spo2: return "drop.fill"
         case .bodyTemp: return "thermometer.medium"
         case .pressure: return "waveform.path.ecg"
-        case .stability: return "chart.bar"
+        case .stability: return "chart.bar.fill"
         }
+    }
+}
+
+// MARK: - شاشة التفاصيل (IndicatorDetailScreen)
+
+private struct IndicatorDetailScreen: View {
+    let indicator: IndicatorReading
+    let samples: [VitalSample]
+    let config: HealthThresholds
+    let onBack: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Button(action: onBack) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 16, weight: .semibold))
+                        Text("رجوع")
+                            .font(.system(size: 16))
+                    }
+                    .foregroundColor(SP.Color.accent)
+                }
+                Spacer()
+                Text(indicator.kind.title)
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(SP.Color.text)
+                Spacer()
+                // Empty view for symmetry
+                Text("رجوع").opacity(0)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .padding(.bottom, 24)
+
+            ScrollView {
+                VStack(spacing: 24) {
+                    // Big Value Card
+                    VStack(spacing: 8) {
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text(indicator.display)
+                                .font(.system(size: 54, weight: .bold, design: .monospaced))
+                                .foregroundColor(indicator.band == .critical ? SP.Color.dangerText : SP.Color.text)
+                            Text(indicator.kind.unit)
+                                .font(.system(size: 18))
+                                .foregroundColor(SP.Color.muted)
+                        }
+                        StatusPill(text: indicator.band.title, color: indicator.band.color)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 32)
+                    .background(cardBackground(border: SP.Color.raised))
+                    .padding(.horizontal, 20)
+
+                    // Trend Card
+                    VStack(alignment: .leading, spacing: 16) {
+                        HStack {
+                            Text("الاتجاه · آخر ٤٠ دقيقة")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundColor(SP.Color.text)
+                            Spacer()
+                            if let trend = indicator.trend {
+                                Text(trend.slopePerMinute > 0 ? "صاعد ↗" : "هابط ↘")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(SP.Color.muted)
+                            }
+                        }
+                        
+                        TrendChart(values: series, color: indicator.band.color)
+                            .frame(height: 160)
+                    }
+                    .padding(20)
+                    .background(cardBackground(border: SP.Color.raised))
+                    .padding(.horizontal, 20)
+
+                    // Ranges Card
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("نطاقات المؤشر")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(SP.Color.text)
+                        
+                        RangeBar(kind: indicator.kind, config: config)
+                    }
+                    .padding(20)
+                    .background(cardBackground(border: SP.Color.raised))
+                    .padding(.horizontal, 20)
+
+                    // Recommendation Card
+                    if indicator.band != .normal {
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(indicator.band.color)
+                                .font(.system(size: 20))
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("توصية")
+                                    .font(.system(size: 15, weight: .bold))
+                                    .foregroundColor(indicator.band.color)
+                                Text("\(indicator.kind.title) أعلى من المعدل الطبيعي. يرجى أخذ قسط من الراحة والتواصل مع غرفة العمليات إذا استمر الارتفاع.")
+                                    .font(.system(size: 13))
+                                    .lineSpacing(4)
+                                    .foregroundColor(SP.Color.text)
+                            }
+                            Spacer()
+                        }
+                        .padding(16)
+                        .background(indicator.band.color.opacity(0.1))
+                        .cornerRadius(16)
+                        .overlay(RoundedRectangle(cornerRadius: 16).stroke(indicator.band.color.opacity(0.3), lineWidth: 1))
+                        .padding(.horizontal, 20)
+                    }
+                }
+                .padding(.bottom, 40)
+            }
+        }
+        .background(SP.Color.ground.ignoresSafeArea())
+    }
+
+    private var series: [Double] {
+        let sorted = samples.sorted { $0.sampleDate < $1.sampleDate }.suffix(40)
+        switch indicator.kind {
+        case .heartRate: return sorted.compactMap { $0.vHeartRate.map(Double.init) }
+        case .spo2:      return sorted.compactMap { $0.vSpo2.map(Double.init) }
+        case .bodyTemp:  return sorted.compactMap { $0.bodyTemp }
+        case .pressure:  return sorted.compactMap { $0.systolic.map(Double.init) }
+        case .stability: return []
+        }
+    }
+}
+
+// MARK: - Trend Chart
+
+private struct TrendChart: View {
+    let values: [Double]
+    let color: Color
+
+    var body: some View {
+        GeometryReader { geo in
+            let pathInfo = makePath(in: geo.size)
+            
+            ZStack {
+                // Gradient Fill
+                pathInfo.fillPath
+                    .fill(LinearGradient(
+                        colors: [color.opacity(0.25), color.opacity(0.0)],
+                        startPoint: .top, endPoint: .bottom
+                    ))
+                
+                // Line
+                pathInfo.linePath
+                    .stroke(
+                        LinearGradient(colors: [color.opacity(0.5), color], startPoint: .leading, endPoint: .trailing),
+                        style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round)
+                    )
+                
+                // Dots
+                ForEach(pathInfo.points.indices, id: \.self) { i in
+                    Circle()
+                        .fill(color)
+                        .frame(width: 8, height: 8)
+                        .position(pathInfo.points[i])
+                        .shadow(color: color.opacity(0.5), radius: 4, x: 0, y: 2)
+                }
+            }
+        }
+    }
+
+    private func makePath(in size: CGSize) -> (linePath: Path, fillPath: Path, points: [CGPoint]) {
+        var line = Path()
+        var fill = Path()
+        var pts: [CGPoint] = []
+        guard values.count > 1, let minVal = values.min(), let maxVal = values.max() else {
+            return (line, fill, pts)
+        }
+        
+        let span = maxVal - minVal
+        let paddedSpan = span == 0 ? 1 : span * 1.5
+        let stepX = size.width / CGFloat(values.count - 1)
+        
+        for (i, v) in values.enumerated() {
+            let ratio = span == 0 ? 0.5 : (v - minVal + (span * 0.25)) / paddedSpan
+            let pt = CGPoint(x: CGFloat(i) * stepX, y: size.height - CGFloat(ratio) * size.height)
+            pts.append(pt)
+            
+            if i == 0 {
+                line.move(to: pt)
+                fill.move(to: CGPoint(x: pt.x, y: size.height))
+                fill.addLine(to: pt)
+            } else {
+                line.addLine(to: pt)
+                fill.addLine(to: pt)
+            }
+            
+            if i == values.count - 1 {
+                fill.addLine(to: CGPoint(x: pt.x, y: size.height))
+                fill.closeSubpath()
+            }
+        }
+        return (line, fill, pts)
+    }
+}
+
+// MARK: - Range Bar
+
+private struct RangeBar: View {
+    let kind: VitalKind
+    let config: HealthThresholds
+
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            HStack(spacing: 2) {
+                Rectangle().fill(SP.Color.caution).frame(width: w * 0.25)
+                Rectangle().fill(SP.Color.ok).frame(width: w * 0.50)
+                Rectangle().fill(SP.Color.caution).frame(width: w * 0.10)
+                Rectangle().fill(SP.Color.danger).frame(width: w * 0.15)
+            }
+            .cornerRadius(6)
+        }
+        .frame(height: 12)
     }
 }
 
@@ -1507,24 +1727,28 @@ private struct ReadingRow: View {
     let sample: VitalSample
 
     var body: some View {
-        HStack(spacing: 12) {
-            Circle().fill(dotColor).frame(width: 8, height: 8)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(ScoreCard.time(sample.sampleDate))
-                    .font(.system(size: 13, weight: .medium, design: .monospaced))
+        HStack(spacing: 14) {
+            Circle().fill(dotColor).frame(width: 10, height: 10)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(timeString(sample.sampleDate))
+                    .font(.system(size: 14, weight: .semibold, design: .monospaced))
                     .foregroundColor(SP.Color.text)
                 Text(vitalsLine)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.system(size: 12, design: .monospaced))
                     .foregroundColor(SP.Color.muted)
             }
             Spacer()
-            Image(systemName: "chevron.forward")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(SP.Color.muted)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 13)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
         .contentShape(Rectangle())
+    }
+
+    private func timeString(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "ar_SA")
+        f.dateFormat = "hh:mm a"
+        return f.string(from: date)
     }
 
     private var vitalsLine: String {
@@ -1551,33 +1775,16 @@ private struct StatusPill: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Circle().fill(color).frame(width: 7, height: 7)
+            Circle().fill(color).frame(width: 6, height: 6)
             Text(text)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 12, weight: .bold))
                 .foregroundColor(color)
         }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 5)
-        .background(
-            Capsule().fill(color.opacity(0.14))
-                .overlay(Capsule().stroke(color.opacity(0.38), lineWidth: 1))
-        )
-    }
-}
-
-private struct ProgressBar: View {
-    let value: Double
-    let color: Color
-
-    var body: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Capsule().fill(SP.Color.raised)
-                Capsule().fill(color)
-                    .frame(width: geo.size.width * CGFloat(min(max(value, 0), 1)))
-            }
-        }
-        .frame(height: 8)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(color.opacity(0.12))
+        .cornerRadius(8)
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(color.opacity(0.2), lineWidth: 1))
     }
 }
 
@@ -1587,12 +1794,13 @@ private struct Sparkline: Shape {
     func path(in rect: CGRect) -> Path {
         var path = Path()
         guard values.count > 1,
-              let min = values.min(), let max = values.max() else { return path }
-        let span = max - min
+              let minVal = values.min(), let maxVal = values.max() else { return path }
+        let span = maxVal - minVal
+        let paddedSpan = span == 0 ? 1 : span * 1.5
         let stepX = rect.width / CGFloat(values.count - 1)
 
         for (i, v) in values.enumerated() {
-            let ratio = span > 0 ? (v - min) / span : 0.5
+            let ratio = span == 0 ? 0.5 : (v - minVal + (span * 0.25)) / paddedSpan
             let point = CGPoint(x: CGFloat(i) * stepX,
                                 y: rect.height - CGFloat(ratio) * rect.height)
             if i == 0 {
