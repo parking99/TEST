@@ -1870,24 +1870,47 @@ struct ShareSheet: UIViewControllerRepresentable {
 class PDFExportManager {
     static func generatePDF(employeeID: String, assessment: HealthAssessment, forecast: ForecastResult, samples: [VitalSample]) -> URL? {
         let pdfView = DashboardPDFView(employeeID: employeeID, assessment: assessment, forecast: forecast, samples: samples)
-        let hostingController = UIHostingController(rootView: pdfView)
-        
         let pageSize = CGSize(width: 595.2, height: 841.8)
-        hostingController.view.frame = CGRect(origin: .zero, size: pageSize)
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("Health_Report_\(UUID().uuidString).pdf")
         
-        let format = UIGraphicsPDFRendererFormat()
-        let renderer = UIGraphicsPDFRenderer(bounds: CGRect(origin: .zero, size: pageSize), format: format)
-        
-        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("Health_Report_\(employeeID).pdf")
-        
-        do {
-            try renderer.writePDF(to: tempURL, withActions: { context in
-                context.beginPage()
-                hostingController.view.layer.render(in: context.cgContext)
-            })
+        if #available(iOS 16.0, *) {
+            let renderer = ImageRenderer(content: pdfView)
+            renderer.proposedSize = .init(pageSize)
+            
+            renderer.render { size, rendererContext in
+                var box = CGRect(origin: .zero, size: size)
+                guard let pdfContext = CGContext(tempURL as CFURL, mediaBox: &box, nil) else { return }
+                pdfContext.beginPDFPage(nil)
+                rendererContext(pdfContext)
+                pdfContext.endPDFPage()
+                pdfContext.closePDF()
+            }
             return tempURL
-        } catch {
-            return nil
+        } else {
+            let hostingController = UIHostingController(rootView: pdfView)
+            hostingController.view.frame = CGRect(origin: .zero, size: pageSize)
+            hostingController.view.backgroundColor = .white
+            
+            // Force layout pass by adding to window briefly
+            let window = UIApplication.shared.windows.first
+            window?.insertSubview(hostingController.view, at: 0)
+            hostingController.view.setNeedsLayout()
+            hostingController.view.layoutIfNeeded()
+            
+            let format = UIGraphicsPDFRendererFormat()
+            let renderer = UIGraphicsPDFRenderer(bounds: CGRect(origin: .zero, size: pageSize), format: format)
+            
+            do {
+                try renderer.writePDF(to: tempURL, withActions: { context in
+                    context.beginPage()
+                    hostingController.view.layer.render(in: context.cgContext)
+                })
+                hostingController.view.removeFromSuperview()
+                return tempURL
+            } catch {
+                hostingController.view.removeFromSuperview()
+                return nil
+            }
         }
     }
 }
