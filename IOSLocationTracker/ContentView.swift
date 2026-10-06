@@ -117,22 +117,22 @@ struct StatusScreen: View {
 
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 11),
                                     GridItem(.flexible(), spacing: 11)], spacing: 11) {
-                    SPMetricCard(title: "Ù†Ø³Ø¨Ø© Ø§Ù„Ø£ÙƒØ³Ø¬ÙŠÙ†", value: connected ? text(ido.currentSpo2) : "â€”",
+                    SPMetricCard(title: "نسبة الأكسجين", value: connected ? text(ido.currentSpo2) : "â€”",
                                  unit: "%", icon: "drop", iconColor: SP.Color.measure,
                                  isStale: !connected)
-                    SPMetricCard(title: "Ø¶ØºØ· Ø§Ù„Ø¯Ù…", value: connected ? (ido.currentBloodPressure.isEmpty ? "â€”" : ido.currentBloodPressure) : "â€”",
+                    SPMetricCard(title: "ضغط الدم", value: connected ? (ido.currentBloodPressure.isEmpty ? "â€”" : ido.currentBloodPressure) : "â€”",
                                  icon: "gauge.medium", iconColor: SP.Color.accent,
                                  isStale: !connected)
-                    SPMetricCard(title: "Ø­Ø±Ø§Ø±Ø© Ø§Ù„Ø¬Ø³Ù…", value: connected ? temperatureText : "â€”",
-                                 unit: "Â°Ù…", icon: "thermometer.medium",
+                    SPMetricCard(title: "حرارة الجسم", value: connected ? temperatureText : "â€”",
+                                 unit: "°م", icon: "thermometer.medium",
                                  iconColor: SP.Color.dangerText, isStale: !connected)
-                    SPMetricCard(title: "Ø§Ù„Ø®Ø·ÙˆØ§Øª", value: connected ? text(ido.currentSteps) : "â€”",
+                    SPMetricCard(title: "الخطوات", value: connected ? text(ido.currentSteps) : "â€”",
                                  icon: "figure.walk", iconColor: SP.Color.ok,
                                  isStale: !connected)
-                    SPMetricCard(title: "Ø¨Ø·Ø§Ø±ÙŠØ© Ø§Ù„Ø³ÙˆØ§Ø±", value: connected ? text(ido.currentBattery) : "â€”",
+                    SPMetricCard(title: "بطارية السوار", value: connected ? text(ido.currentBattery) : "â€”",
                                  unit: "%", icon: "battery.75", iconColor: SP.Color.muted,
                                  isStale: !connected)
-                    SPMetricCard(title: "Ø§Ù„Ù…ÙˆÙ‚Ø¹", value: locationText,
+                    SPMetricCard(title: "الموقع", value: locationText,
                                  icon: "location", iconColor: SP.Color.measure)
                 }
 
@@ -142,7 +142,7 @@ struct StatusScreen: View {
                     Button {
                         onNavigateToDevices?()
                     } label: {
-                        Label("Ø§Ù„Ø¨Ø­Ø« Ø¹Ù† Ø§Ù„Ø³ÙˆØ§Ø± ÙŠØ¯ÙˆÙŠÙ‹Ø§", systemImage: "magnifyingglass")
+                        Label("البحث عن السوار (يصدر ذبذبات)", systemImage: "magnifyingglass")
                     }
                     .buttonStyle(SPPrimaryButton())
                     .padding(.top, 4)
@@ -153,10 +153,10 @@ struct StatusScreen: View {
         }
         .safeAreaInset(edge: .top) {
             SPScreenHeader(
-                kicker: "Ù…Ù†ØµØ© Ø±Ø§ØµØ¯",
-                title: "Ø§Ù„Ù‚Ø±Ø§Ø¡Ø© Ø§Ù„ØµØ­ÙŠØ©",
+                kicker: "منصة الرصد",
+                title: "القراءات الحيوية",
                 trailing: AnyView(
-                    SPStatusPill(text: fullyActive ? "Ù…ØªØµÙ„ ÙˆÙ†Ø´ÙØ·" : (connected ? "Ù…ØªØµÙ„ (Ø¬Ø§Ø±ÙŠ Ø§Ù„ØªÙ†Ø´ÙŠØ·)" : "ØºÙŠØ± Ù…ØªØµÙ„"),
+                    SPStatusPill(text: fullyActive ? "متصل ونشط" : (connected ? "Ù…ØªØµÙ„ (Ø¬Ø§Ø±ÙŠ Ø§Ù„ØªÙ†Ø´ÙŠØ·)" : "ØºÙŠØ± Ù…ØªØµÙ„"),
                                  color: fullyActive ? SP.Color.ok : (connected ? SP.Color.measure : SP.Color.dangerText))
                 )
             )
@@ -171,13 +171,13 @@ struct StatusScreen: View {
             HStack(spacing: 9) {
                 Image(systemName: "antenna.radiowaves.left.and.right.slash")
                     .foregroundStyle(SP.Color.dangerText)
-                Text("ØªÙ… Ù‚Ø·Ø¹ Ø§Ù„Ø§ØªØµØ§Ù„ Ø¨Ø§Ù„Ø³ÙˆØ§Ø±")
+                Text("تم قطع الاتصال بالسوار")
                     .font(SP.Font.ui(14, .semibold))
                     .foregroundStyle(SP.Color.text)
                 Spacer(minLength: 0)
             }
             Text(ido.statusMessage.isEmpty
-                 ? "Ø¬Ø§Ø±Ù Ø§Ù„Ø¨Ø­Ø« Ø§Ù„ØªÙ„Ù‚Ø§Ø¦ÙŠ Ù„Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„Ø§ØªØµØ§Ù„ ÙÙˆØ± Ø±ØµØ¯ Ø§Ù„Ø³ÙˆØ§Ø± Ø§Ù„Ù…Ù‚ØªØ±Ù†."
+                 ? "جاري البحث لإعادة الاتصال فور رصد السوار..."
                  : ido.statusMessage)
                 .font(SP.Font.ui(12.5))
                 .lineSpacing(4)
@@ -200,16 +200,16 @@ struct StatusScreen: View {
                 Image(systemName: "heart")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(connected ? SP.Color.accent : SP.Color.muted)
-                Text(connected ? "Ù†Ø¨Ø¶ Ø§Ù„Ù‚Ù„Ø¨ â€” Ù…Ø¨Ø§Ø´Ø±" : "Ù†Ø¨Ø¶ Ø§Ù„Ù‚Ù„Ø¨ â€” Ø¢Ø®Ø± Ù‚Ø±Ø§Ø¡Ø©")
+                Text(connected ? "نبض القلب المباشر" : "Ù†Ø¨Ø¶ Ø§Ù„Ù‚Ù„Ø¨ â€” Ø¢Ø®Ø± Ù‚Ø±Ø§Ø¡Ø©")
                     .font(SP.Font.ui(13, .semibold))
                     .foregroundStyle(connected ? SP.Color.text : SP.Color.muted)
                 Spacer(minLength: 0)
                 if connected {
-                    Text("ØªØ­Ø¯ÙŠØ« ÙƒÙ„ Ø«Ø§Ù†ÙŠØªÙŠÙ†")
+                    Text("تحديث قبل ثوانٍ")
                         .font(SP.Font.ui(11))
                         .foregroundStyle(SP.Color.muted)
                 } else {
-                    Text("Ù‚Ø¯ÙŠÙ…Ø©")
+                    Text("دقيقة")
                         .font(SP.Font.ui(10, .semibold))
                         .foregroundStyle(SP.Color.accent)
                         .padding(.horizontal, 6).padding(.vertical, 2)
@@ -221,7 +221,7 @@ struct StatusScreen: View {
                 Text(text(ido.currentHeartRate))
                     .font(SP.Font.numeric(72))
                     .foregroundStyle(connected ? SP.Color.accent : SP.Color.dimmer)
-                Text("Ù†Ø¨Ø¶Ø©/Ø¯Ù‚ÙŠÙ‚Ø©")
+                Text("نبضة/دقيقة")
                     .font(SP.Font.ui(12))
                     .foregroundStyle(SP.Color.muted)
                     .padding(.bottom, 9)
@@ -250,11 +250,11 @@ struct StatusScreen: View {
                 bar(Color(hex: 0x1F4C94), 2); bar(SP.Color.line, 1)
             }
             HStack {
-                Text("Ù‡Ø§Ø¯Ø¦").font(SP.Font.ui(10.5)).foregroundStyle(SP.Color.muted)
+                Text("طبيعي").font(SP.Font.ui(10.5)).foregroundStyle(SP.Color.muted)
                 Spacer()
-                Text("Ø§Ù„Ù†Ø·Ø§Ù‚ Ø§Ù„Ø¢Ù…Ù†").font(SP.Font.ui(10.5, .semibold)).foregroundStyle(SP.Color.ok)
+                Text("النطاق الآمن").font(SP.Font.ui(10.5, .semibold)).foregroundStyle(SP.Color.ok)
                 Spacer()
-                Text("Ù…Ø±ØªÙØ¹").font(SP.Font.ui(10.5)).foregroundStyle(SP.Color.muted)
+                Text("مرتفع").font(SP.Font.ui(10.5)).foregroundStyle(SP.Color.muted)
             }
         }
     }
@@ -271,7 +271,7 @@ struct StatusScreen: View {
                     Circle()
                         .fill(syncManager.isAutoSyncActive ? SP.Color.ok : SP.Color.muted)
                         .frame(width: 7, height: 7)
-                    Text(syncManager.isAutoSyncActive ? "Ø¥Ø±Ø³Ø§Ù„ ØªÙ„Ù‚Ø§Ø¦ÙŠ (ÙƒÙ„ Ø¯Ù‚ÙŠÙ‚Ø©)" : "Ø¢Ø®Ø± Ø¥Ø±Ø³Ø§Ù„ ÙˆØµÙ„")
+                    Text(syncManager.isAutoSyncActive ? "إرسال تلقائي (كل دقيقة)" : "Ø¢Ø®Ø± Ø¥Ø±Ø³Ø§Ù„ ÙˆØµÙ„")
                         .font(SP.Font.ui(11.5))
                         .foregroundStyle(SP.Color.muted)
                 }
@@ -280,7 +280,7 @@ struct StatusScreen: View {
                     .foregroundStyle(SP.Color.text)
             }
             Spacer(minLength: 0)
-            Button(syncManager.isSyncing ? "Ø¬Ø§Ø±Ù Ø§Ù„Ø¥Ø±Ø³Ø§Ù„â€¦" : "Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ø¢Ù†") {
+            Button(syncManager.isSyncing ? "جاري الإرسال..." : "Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ø¢Ù†") {
                 send()
             }
             .font(SP.Font.ui(13, .semibold))
@@ -314,7 +314,7 @@ struct StatusScreen: View {
     }
 
     private var locationText: String {
-        location.latitude == 0 && location.longitude == 0 ? "â€”" : "Ù…ÙØ­Ø¯ÙŽÙ‘Ø¯"
+        location.latitude == 0 && location.longitude == 0 ? "â€”" : "مُحدّث"
     }
 
     private static let timeFormatter: DateFormatter = {
@@ -352,7 +352,7 @@ struct HistoryScreen: View {
                     Image(systemName: "clock.arrow.circlepath")
                         .font(.system(size: 40))
                     Text("لا ووجد سجل حتى الآ؄")
-                    Text("Ù„Ø§ ÙŠÙˆØ¬Ø¯ Ø³Ø¬Ù„ Ø­ØªÙ‰ Ø§Ù„Ø¢Ù†")
+                    Text("لا يوجد سجل حتى الآن")
                         .font(SP.Font.ui(14, .medium))
                         .foregroundStyle(SP.Color.muted)
                 }
@@ -398,7 +398,7 @@ struct HistoryRow: View {
                     .foregroundStyle(SP.Color.text)
                 Spacer()
                 if record.isSos {
-                    Text("Ø­Ø§Ù„Ø© Ø·ÙˆØ§Ø±Ø¦")
+                    Text("حالة طوارئ")
                         .font(SP.Font.ui(10, .bold))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
@@ -406,7 +406,7 @@ struct HistoryRow: View {
                         .foregroundStyle(SP.Color.dangerText)
                         .cornerRadius(4)
                 } else {
-                    Text("Ù…Ø²Ø§Ù…Ù†Ø© Ø¯ÙˆØ±ÙŠØ©")
+                    Text("مزامنة دورية")
                         .font(SP.Font.ui(10, .medium))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
@@ -420,7 +420,7 @@ struct HistoryRow: View {
                 MetricMini(icon: "heart.fill", value: "\(record.heartRate)", color: SP.Color.dangerText)
                 MetricMini(icon: "drop.fill", value: "\(record.spo2)%", color: SP.Color.measure)
                 MetricMini(icon: "battery.100", value: "\(record.battery)%", color: SP.Color.ok)
-                MetricMini(icon: "location.fill", value: "Ù…ÙØ­ÙŽØ¯Ù‘ÙŽØ«", color: SP.Color.accent)
+                MetricMini(icon: "location.fill", value: "مُحدّث", color: SP.Color.accent)
             }
         }
         .padding()
