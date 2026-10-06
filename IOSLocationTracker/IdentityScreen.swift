@@ -56,7 +56,8 @@ struct IdentityScreen: View {
                         .font(SP.Font.ui(13, .semibold))
                         .foregroundStyle(SP.Color.text)
 
-                    if let coord = location.location?.coordinate {
+                    let coord = CLLocationCoordinate2D(latitude: location.latitude, longitude: location.longitude)
+                    if true {
                         Map(coordinateRegion: .constant(MKCoordinateRegion(center: coord, span: MKCoordinateSpan(latitudeDelta: 0.005, longitudeDelta: 0.005))), interactionModes: .all, annotationItems: [MapLocation(coord: coord)]) { place in
                             MapMarker(coordinate: place.coord, tint: SP.Color.danger)
                         }
