@@ -861,9 +861,6 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                 }
             }
         }
-
-        // 4. Run official SDK data sync
-        syncHealthData()
     }
 
     func syncHealthData() {
@@ -896,24 +893,12 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         DispatchQueue.main.async {
             var changed = false
 
-            // Extract HR from value if type is explicitly .heartRate (avoids idle battery collision)
-            if type == .heartRate && (40...220).contains(result.value) {
-                self.updateLiveHeartRate(result.value, source: "IDOMeasureResult.value(.heartRate)")
-            }
             // Extract heart rate safely through central filter (Only from dedicated oneClickHr to avoid battery collision)
             if (40...220).contains(result.oneClickHr) {
                 self.updateLiveHeartRate(result.oneClickHr, source: "IDOMeasureResult.oneClickHr")
             }
 
-            // Extract SpO2 from value if type is explicitly .spo2
-            if type == .spo2 && (90...100).contains(result.value) {
-                self.lastLiveSpo2Time = Date()
-                if self.currentSpo2 != result.value {
-                    self.currentSpo2 = result.value
-                    UserDefaults.standard.set(result.value, forKey: "last_spo2")
-                    changed = true
-                }
-            }
+
             // Extract SpO2 safely (Only from dedicated SpO2 field, never from HR result.value)
             if (90...100).contains(result.oneClickSpo2) {
                 self.lastLiveSpo2Time = Date()
@@ -1323,8 +1308,8 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
             if type == 1 || type == 2 || type == 3 || type == 15 || type == 23 || type == 64 || type == 65 {
                 print("[IdoSmartManager] Device notification dataType=\(type) -> Refreshing health metrics")
                 self.requestLiveMetrics()
-                // Sync health data to get historical/completed measurements that don't come via live stream
-                if !self.isSyncingHealth && (type == 65 || type == 2 || type == 3) {
+                // Sync health data ONLY for manual one-off measurements like SpO2 (65) to avoid jamming BLE
+                if !self.isSyncingHealth && type == 65 {
                     self.syncHealthData()
                 }
             }
