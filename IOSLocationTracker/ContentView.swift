@@ -1216,8 +1216,7 @@ public struct HistoryScreen: View {
 
     // MARK: الأجزاء
 
-    
-    @State private var exportItem: ExportItem?
+    @State private var isSharing = false
 
     private var header: some View {
         HStack {
@@ -1231,9 +1230,7 @@ public struct HistoryScreen: View {
             }
             Spacer()
             Button {
-                if let url = PDFExportManager.generatePDF(employeeID: employeeID, assessment: assessment, forecast: forecast, samples: samples) {
-                    exportItem = ExportItem(url: url)
-                }
+                isSharing = true
             } label: {
                 Image(systemName: "square.and.arrow.up")
                     .font(.system(size: 20))
@@ -1245,11 +1242,10 @@ public struct HistoryScreen: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .sheet(item: $exportItem) { item in
-            ShareSheet(items: [item.url])
+        .sheet(isPresented: $isSharing) {
+            ShareHealthReportView(samples: samples, employeeID: employeeID)
         }
     }
-
 
     private var emptyState: some View {
         VStack(spacing: 12) {
@@ -1846,188 +1842,955 @@ private func cardBackground(radius: CGFloat = 20, border: Color) -> some View {
 }
 
 
+//
+//  HealthReport.swift
+//  SecurityPass
+//
+//  نموذج التقرير الصحي: يجمّع السجلات المخزّنة محلياً في بنية جاهزة للطباعة.
+//  لا شبكة، ولا حقل جديد، ولا تغيير على قاعدة البيانات أو البروتوكول.
+//
 
-// MARK: - PDF Export & Dashboard
+import Foundation
+
+public enum ReportPeriod: String, CaseIterable, Identifiable {
+    case today, week, month
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .today: return "اليوم"
+        case .week:  return "آخر ٧ أيام"
+        case .month: return "آخر ٣٠ يوماً"
+        }
+    }
+
+    public var duration: TimeInterval {
+        switch self {
+        case .today: return 24 * 3600
+        case .week:  return 7 * 24 * 3600
+        case .month: return 30 * 24 * 3600
+        }
+    }
+}
+
+public struct IndicatorSummary {
+    public let kind: VitalKind
+    public let latest: String
+    public let minimum: String
+    public let average: String
+    public let maximum: String
+    public let band: VitalBand
+    /// نسبة الوقت ضمن النطاق الطبيعي ٠…١.
+    public let inRange: Double
+}
+
+public struct DailyStat {
+    public let day: Date
+    public let count: Int
+    public let score: Int
+    public let band: HealthBand
+    public let avgHeartRate: Double?
+    public let maxHeartRate: Double?
+    public let minSpo2: Double?
+    public let maxTemp: Double?
+}
+
+public struct ReadingLine {
+    public let date: Date
+    public let heartRate: String
+    public let spo2: String
+    public let pressure: String
+    public let temperature: String
+    public let band: HealthBand
+}
+
+public struct HealthReport {
+    public let employeeID: String
+    public let period: ReportPeriod
+    public let from: Date
+    public let to: Date
+    public let generatedAt: Date
+    public let assessment: HealthAssessment
+    public let summary: [IndicatorSummary]
+    public let daily: [DailyStat]
+
+    /// أحدث القراءات، مقصوصة عند `maxReadings` — تقرير شهر بالإرسال كل دقيقة يتجاوز ٤٠ ألف سطر.
+    public let readings: [ReadingLine]
+    /// العدد الكامل قبل القص، ليُذكر في التقرير بصدق.
+    public let readingsTotal: Int
+    /// سلسلة النبض للرسم البياني.
+    public let heartRateSeries: [(date: Date, value: Double)]
+
+    public var isEmpty: Bool { readings.isEmpty }
+    public var isTruncated: Bool { readingsTotal > readings.count }
+}
+
+// MARK: - البناء
+
+public enum HealthReportBuilder {
+    public static func build(
+        from samples: [VitalSample],
+        employeeID: String,
+        period: ReportPeriod,
+        now: Date = Date(),
+        maxReadings: Int = 400,
+        config: HealthThresholds = .default
+    ) -> HealthReport {
+        let from = now.addingTimeInterval(-period.duration)
+        let window = samples
+            .filter { $0.sampleDate >= from && $0.sampleDate <= now }
+            .sorted { $0.sampleDate < $1.sampleDate }
+
+        let assessment = HealthEngine.assess(window, now: now, config: config)
+
+        return HealthReport(
+            employeeID: employeeID,
+            period: period,
+            from: from,
+            to: now,
+            generatedAt: now,
+            assessment: assessment,
+            summary: summaries(window, config: config),
+            daily: dailyStats(window, config: config),
+            readings: window.reversed().prefix(maxReadings).map { line(for: $0, config: config) },
+            readingsTotal: window.count,
+            heartRateSeries: window.compactMap { s in
+                s.vHeartRate.map { (date: s.sampleDate, value: Double($0)) }
+            }
+        )
+    }
+
+    // MARK: ملخص كل مؤشر
+
+    private static func summaries(_ window: [VitalSample],
+                                  config: HealthThresholds) -> [IndicatorSummary] {
+        var out: [IndicatorSummary] = []
+
+        func add(_ kind: VitalKind, _ band: HealthThresholds.Band,
+                 _ values: [Double], decimals: Int = 0) {
+            guard let latest = values.last,
+                  let lo = values.min(), let hi = values.max() else { return }
+
+            let avg = values.reduce(0, +) / Double(values.count)
+            let inRange = Double(values.filter { band.normal.contains($0) }.count) / Double(values.count)
+
+            func f(_ v: Double) -> String {
+                decimals == 0 ? "\(Int(v.rounded()))" : String(format: "%.\(decimals)f", v)
+            }
+
+            out.append(IndicatorSummary(
+                kind: kind, latest: f(latest), minimum: f(lo),
+                average: f(avg), maximum: f(hi),
+                band: HealthEngine.classify(latest, band), inRange: inRange
+            ))
+        }
+
+        add(.heartRate, config.heartRate, window.compactMap { $0.vHeartRate.map(Double.init) })
+        add(.spo2, config.spo2, window.compactMap { $0.vSpo2.map(Double.init) })
+        add(.bodyTemp, config.bodyTemp, window.compactMap { $0.bodyTemp }, decimals: 1)
+        add(.pressure, config.systolic, window.compactMap { $0.systolic.map(Double.init) })
+
+        return out
+    }
+
+    // MARK: التجميع اليومي
+
+    private static func dailyStats(_ window: [VitalSample],
+                                   config: HealthThresholds) -> [DailyStat] {
+        let calendar = Calendar(identifier: .gregorian)
+        let groups = Dictionary(grouping: window) { calendar.startOfDay(for: $0.sampleDate) }
+
+        return groups.keys.sorted(by: >).map { day in
+            let items = groups[day] ?? []
+            let endOfDay = day.addingTimeInterval(24 * 3600 - 1)
+            var dayConfig = config
+            dayConfig.displayWindow = 24 * 3600
+            let assessment = HealthEngine.assess(items, now: endOfDay, config: dayConfig)
+
+            let hr = items.compactMap { $0.vHeartRate.map(Double.init) }
+            let spo2 = items.compactMap { $0.vSpo2.map(Double.init) }
+            let temp = items.compactMap { $0.bodyTemp }
+
+            return DailyStat(
+                day: day,
+                count: items.count,
+                score: assessment.score,
+                band: assessment.band,
+                avgHeartRate: hr.isEmpty ? nil : hr.reduce(0, +) / Double(hr.count),
+                maxHeartRate: hr.max(),
+                minSpo2: spo2.min(),
+                maxTemp: temp.max()
+            )
+        }
+    }
+
+    // MARK: سطر قراءة
+
+    private static func line(for s: VitalSample, config: HealthThresholds) -> ReadingLine {
+        let single = HealthEngine.assess([s], now: s.sampleDate, config: config)
+        return ReadingLine(
+            date: s.sampleDate,
+            heartRate: s.vHeartRate.map { "\($0)" } ?? "—",
+            spo2: s.vSpo2.map { "\($0)%" } ?? "—",
+            pressure: {
+                guard let sys = s.systolic else { return "—" }
+                guard let dia = s.diastolic else { return "\(sys)" }
+                return "\(sys)/\(dia)"
+            }(),
+            temperature: s.bodyTemp.map { String(format: "%.1f", $0) } ?? "—",
+            band: single.band
+        )
+    }
+}
+
+// MARK: - تنسيق التواريخ
+
+public enum ReportFormat {
+    public static let locale = Locale(identifier: "ar_SA")
+
+    public static let time: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = locale
+        f.dateFormat = "hh:mm a"
+        return f
+    }()
+
+    public static let dayMonth: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = locale
+        f.dateFormat = "d MMMM"
+        return f
+    }()
+
+    public static let full: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = locale
+        f.dateFormat = "EEEE d MMMM yyyy — hh:mm a"
+        return f
+    }()
+
+    public static let fileStamp: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd_HHmm"
+        return f
+    }()
+}
+
+
+//
+//  HealthReportPDF.swift
+//  SecurityPass
+//
+//  مولّد تقرير PDF متعدد الصفحات — رسم مباشر بـ Core Graphics.
+//  النص متجهي قابل للتحديد والبحث والطباعة بوضوح، لا لقطة شاشة.
+//  ألوان الطباعة نسخ داكنة من ألوان الشاشة: الأخضر النيون على أبيض غير مقروء.
+//
 
 import UIKit
 
-struct ExportItem: Identifiable {
-    let id = UUID()
-    let url: URL
-}
+public enum HealthReportPDF {
 
-struct ShareSheet: UIViewControllerRepresentable {
-    var items: [Any]
-    
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    // MARK: ألوان الطباعة
+
+    private enum Ink {
+        static let text      = UIColor(red: 0.00, green: 0.07, blue: 0.22, alpha: 1)  // #001338
+        static let muted     = UIColor(red: 0.35, green: 0.40, blue: 0.51, alpha: 1)  // #5A6682
+        static let rule      = UIColor(red: 0.89, green: 0.91, blue: 0.94, alpha: 1)  // #E2E7F0
+        static let cardFill  = UIColor(red: 0.96, green: 0.97, blue: 0.98, alpha: 1)  // #F5F7FB
+        static let accent    = UIColor(red: 0.09, green: 0.23, blue: 0.47, alpha: 1)  // #163A77
+        static let success   = UIColor(red: 0.05, green: 0.48, blue: 0.27, alpha: 1)  // #0E7A45
+        static let caution   = UIColor(red: 0.66, green: 0.36, blue: 0.00, alpha: 1)  // #A85C00
+        static let danger    = UIColor(red: 0.75, green: 0.12, blue: 0.16, alpha: 1)  // #C01F28
     }
-    
-    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
-}
 
-@MainActor
-class PDFExportManager {
-    static func generatePDF(employeeID: String, assessment: HealthAssessment, forecast: ForecastResult, samples: [VitalSample]) -> URL? {
-        let pdfView = DashboardPDFView(employeeID: employeeID, assessment: assessment, forecast: forecast, samples: samples)
-        let pageSize = CGSize(width: 595.2, height: 841.8)
-        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("Health_Report_\(UUID().uuidString).pdf")
-        
-        if #available(iOS 16.0, *) {
-            let renderer = ImageRenderer(content: pdfView)
-            renderer.proposedSize = .init(pageSize)
-            
-            renderer.render { size, rendererContext in
-                var box = CGRect(origin: .zero, size: size)
-                guard let pdfContext = CGContext(tempURL as CFURL, mediaBox: &box, nil) else { return }
-                pdfContext.beginPDFPage(nil)
-                rendererContext(pdfContext)
-                pdfContext.endPDFPage()
-                pdfContext.closePDF()
-            }
-            return tempURL
-        } else {
-            let hostingController = UIHostingController(rootView: pdfView)
-            hostingController.view.frame = CGRect(origin: .zero, size: pageSize)
-            hostingController.view.backgroundColor = .white
-            
-            // Force layout pass by adding to window briefly
-            let window = UIApplication.shared.windows.first
-            window?.insertSubview(hostingController.view, at: 0)
-            hostingController.view.setNeedsLayout()
-            hostingController.view.layoutIfNeeded()
-            
-            let format = UIGraphicsPDFRendererFormat()
-            let renderer = UIGraphicsPDFRenderer(bounds: CGRect(origin: .zero, size: pageSize), format: format)
-            
-            do {
-                try renderer.writePDF(to: tempURL, withActions: { context in
-                    context.beginPage()
-                    hostingController.view.layer.render(in: context.cgContext)
-                })
-                hostingController.view.removeFromSuperview()
-                return tempURL
-            } catch {
-                hostingController.view.removeFromSuperview()
-                return nil
-            }
+    private static func color(_ band: VitalBand) -> UIColor {
+        switch band {
+        case .normal:   return Ink.success
+        case .caution:  return Ink.caution
+        case .critical: return Ink.danger
+        case .unknown:  return Ink.muted
         }
     }
+
+    private static func color(_ band: HealthBand) -> UIColor {
+        switch band {
+        case .excellent: return Ink.success
+        case .good:      return Ink.accent
+        case .attention: return Ink.caution
+        case .danger:    return Ink.danger
+        }
+    }
+
+    private static func title(_ band: VitalBand) -> String {
+        switch band {
+        case .normal:   return "طبيعي"
+        case .caution:  return "خارج النطاق"
+        case .critical: return "تجاوز الحد"
+        case .unknown:  return "—"
+        }
+    }
+
+    // MARK: قياسات الصفحة
+
+    private static let page = CGRect(x: 0, y: 0, width: 595.2, height: 841.8)   // A4
+    private static let margin: CGFloat = 40
+    private static let rowHeight: CGFloat = 18
+    private static let rowsPerPage = 36
+
+    private static var contentWidth: CGFloat { page.width - margin * 2 }
+
+    // MARK: الواجهة
+
+    /// ينتج ملف PDF في مجلد مؤقت ويعيد مساره، جاهزاً للمشاركة.
+    public static func render(_ report: HealthReport) throws -> URL {
+        let readingPages = report.readings.isEmpty
+            ? 0
+            : Int(ceil(Double(report.readings.count) / Double(rowsPerPage)))
+        let totalPages = 1 + readingPages
+
+        let info: [String: Any] = [
+            kCGPDFContextTitle as String: "التقرير الصحي — \(report.employeeID)",
+            kCGPDFContextCreator as String: "SecurityPass"
+        ]
+
+        let format = UIGraphicsPDFRendererFormat()
+        format.documentInfo = info
+
+        let renderer = UIGraphicsPDFRenderer(bounds: page, format: format)
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(fileName(for: report))
+
+        try renderer.writePDF(to: url) { ctx in
+            ctx.beginPage()
+            drawSummaryPage(report)
+            drawFooter(page: 1, of: totalPages, report: report)
+
+            for index in 0..<readingPages {
+                ctx.beginPage()
+                drawReadingsPage(report, pageIndex: index)
+                drawFooter(page: index + 2, of: totalPages, report: report)
+            }
+        }
+        return url
+    }
+
+    public static func fileName(for report: HealthReport) -> String {
+        let stamp = ReportFormat.fileStamp.string(from: report.generatedAt)
+        let id = report.employeeID.replacingOccurrences(of: " ", with: "_")
+        return "SecurityPass_Health_\(id)_\(stamp).pdf"
+    }
+
+    // MARK: الصفحة الأولى
+
+    private static func drawSummaryPage(_ report: HealthReport) {
+        var y = drawHeader(report)
+        y = drawScoreBlock(report, top: y + 18)
+        y = drawIndicatorGrid(report, top: y + 18)
+        y = drawChart(report, top: y + 18)
+        _ = drawDailyTable(report, top: y + 18)
+    }
+
+    private static func drawHeader(_ report: HealthReport) -> CGFloat {
+        Ink.accent.setFill()
+        UIBezierPath(rect: CGRect(x: 0, y: 0, width: page.width, height: 6)).fill()
+
+        var y: CGFloat = margin + 6
+        text("التقرير الصحي", CGRect(x: margin, y: y, width: contentWidth, height: 30),
+             font: .systemFont(ofSize: 24, weight: .bold), color: Ink.text)
+        y += 30
+
+        text("SecurityPass · المعرف الوظيفي \(report.employeeID)",
+             CGRect(x: margin, y: y, width: contentWidth, height: 18),
+             font: .systemFont(ofSize: 12), color: Ink.muted)
+        y += 18
+
+        let range = "\(ReportFormat.dayMonth.string(from: report.from)) — \(ReportFormat.dayMonth.string(from: report.to))"
+        text("\(report.period.title) · \(range) · \(report.assessment.sampleCount) قراءة",
+             CGRect(x: margin, y: y, width: contentWidth, height: 18),
+             font: .systemFont(ofSize: 12), color: Ink.muted)
+        y += 22
+
+        Ink.rule.setFill()
+        UIBezierPath(rect: CGRect(x: margin, y: y, width: contentWidth, height: 1)).fill()
+
+        return y
+    }
+
+    private static func drawScoreBlock(_ report: HealthReport, top: CGFloat) -> CGFloat {
+        let height: CGFloat = 92
+        let rect = CGRect(x: margin, y: top, width: contentWidth, height: height)
+        card(rect)
+
+        let a = report.assessment
+        let accent = color(a.band)
+
+        // شريط لوني على الحافة اليمنى (اتجاه القراءة)
+        accent.setFill()
+        UIBezierPath(roundedRect: CGRect(x: rect.maxX - 5, y: rect.minY, width: 5, height: height),
+                     cornerRadius: 2.5).fill()
+
+        let pad: CGFloat = 16
+        var y = rect.minY + pad
+        text("التقييم العام للفترة",
+             CGRect(x: rect.minX + pad, y: y, width: rect.width - pad * 2 - 8, height: 14),
+             font: .systemFont(ofSize: 11), color: Ink.muted)
+        y += 16
+
+        text("\(a.score)", CGRect(x: rect.maxX - 150, y: y, width: 130, height: 34),
+             font: .monospacedDigitSystemFont(ofSize: 30, weight: .bold), color: Ink.text)
+
+        text("من ١٠٠ · \(a.band.title)",
+             CGRect(x: rect.minX + pad, y: y + 10, width: rect.width - 180, height: 18),
+             font: .systemFont(ofSize: 13, weight: .semibold), color: accent)
+        y += 38
+
+        text(a.headline,
+             CGRect(x: rect.minX + pad, y: y, width: rect.width - pad * 2 - 8, height: 32),
+             font: .systemFont(ofSize: 11), color: Ink.text, lines: 2)
+
+        return rect.maxY
+    }
+
+    private static func drawIndicatorGrid(_ report: HealthReport, top: CGFloat) -> CGFloat {
+        guard !report.summary.isEmpty else { return top }
+
+        let columns = 4
+        let gap: CGFloat = 8
+        let w = (contentWidth - gap * CGFloat(columns - 1)) / CGFloat(columns)
+        let h: CGFloat = 74
+
+        var maxY = top
+        for (i, s) in report.summary.enumerated() {
+            let row = i / columns
+            let col = i % columns
+
+            // RTL: العمود الأول على اليمين
+            let x = margin + CGFloat(columns - 1 - col) * (w + gap)
+            let y = top + CGFloat(row) * (h + gap)
+
+            let rect = CGRect(x: x, y: y, width: w, height: h)
+            card(rect)
+
+            let pad: CGFloat = 9
+            let inner = CGRect(x: rect.minX + pad, y: rect.minY + pad,
+                               width: rect.width - pad * 2, height: 0)
+
+            text(s.kind.title, inner.offsetBy(dx: 0, dy: 0).with(height: 12),
+                 font: .systemFont(ofSize: 9.5), color: Ink.muted)
+
+            text("\(s.latest) \(s.kind.unit)",
+                 inner.offsetBy(dx: 0, dy: 13).with(height: 20),
+                 font: .monospacedDigitSystemFont(ofSize: 15, weight: .semibold), color: Ink.text)
+
+            text(title(s.band),
+                 inner.offsetBy(dx: 0, dy: 33).with(height: 12),
+                 font: .systemFont(ofSize: 8.5, weight: .semibold), color: color(s.band))
+
+            text("أدنى \(s.minimum) · وسط \(s.average) · أعلى \(s.maximum)",
+                 inner.offsetBy(dx: 0, dy: 46).with(height: 11),
+                 font: .systemFont(ofSize: 7), color: Ink.muted)
+
+            text("ضمن النطاق \(Int((s.inRange * 100).rounded()))% من الوقت",
+                 inner.offsetBy(dx: 0, dy: 56).with(height: 11),
+                 font: .systemFont(ofSize: 7), color: Ink.muted)
+
+            maxY = max(maxY, rect.maxY)
+        }
+        return maxY
+    }
+
+    private static func drawChart(_ report: HealthReport, top: CGFloat) -> CGFloat {
+        let series = report.heartRateSeries.map { $0.value }
+        guard series.count >= 2 else { return top }
+
+        let height: CGFloat = 130
+        let rect = CGRect(x: margin, y: top, width: contentWidth, height: height)
+
+        text("مسار نبض القلب خلال الفترة",
+             CGRect(x: margin, y: top, width: contentWidth, height: 14),
+             font: .systemFont(ofSize: 11, weight: .semibold), color: Ink.text)
+
+        let plot = CGRect(x: rect.minX + 34, y: rect.minY + 22,
+                          width: rect.width - 34, height: height - 36)
+
+        let lo = min(series.min() ?? 60, 55)
+        let hi = max(series.max() ?? 120, 125)
+        let span = max(hi - lo, 1)
+
+        func yFor(_ v: Double) -> CGFloat {
+            plot.maxY - CGFloat((v - lo) / span) * plot.height
+        }
+
+        // النطاق الآمن ٦٠–١٠٠
+        Ink.success.withAlphaComponent(0.10).setFill()
+        let bandRect = CGRect(x: plot.minX, y: yFor(100),
+                              width: plot.width, height: yFor(60) - yFor(100))
+        UIBezierPath(rect: bandRect).fill()
+
+        // خط الإنذار ١٢٠
+        let alarm = UIBezierPath()
+        alarm.move(to: CGPoint(x: plot.minX, y: yFor(120)))
+        alarm.addLine(to: CGPoint(x: plot.maxX, y: yFor(120)))
+        alarm.setLineDash([3, 3], count: 2, phase: 0)
+        alarm.lineWidth = 0.8
+        Ink.danger.setStroke()
+        alarm.stroke()
+
+        for value in [120.0, 100.0, 60.0] {
+            text("\(Int(value))",
+                 CGRect(x: rect.minX, y: yFor(value) - 7, width: 28, height: 12),
+                 font: .monospacedDigitSystemFont(ofSize: 8, weight: .regular),
+                 color: value == 120 ? Ink.danger : Ink.muted, align: .left)
+        }
+
+        // المنحنى — تخفيف الكثافة ليبقى مقروءاً
+        let step = max(1, series.count / 220)
+        let points = stride(from: 0, to: series.count, by: step).map { i -> CGPoint in
+            let x = plot.minX + plot.width * CGFloat(i) / CGFloat(max(series.count - 1, 1))
+            return CGPoint(x: x, y: yFor(series[i]))
+        }
+
+        let line = UIBezierPath()
+        for (i, p) in points.enumerated() {
+            if i == 0 {
+                line.move(to: p)
+            } else {
+                line.addLine(to: p)
+            }
+        }
+        line.lineWidth = 1.4
+        line.lineJoinStyle = .round
+        line.lineCapStyle = .round
+        Ink.accent.setStroke()
+        line.stroke()
+
+        Ink.rule.setFill()
+        UIBezierPath(rect: CGRect(x: plot.minX, y: plot.maxY, width: plot.width, height: 0.7)).fill()
+
+        text(ReportFormat.dayMonth.string(from: report.to),
+             CGRect(x: plot.minX, y: plot.maxY + 3, width: 120, height: 11),
+             font: .systemFont(ofSize: 8), color: Ink.muted)
+        text(ReportFormat.dayMonth.string(from: report.from),
+             CGRect(x: plot.maxX - 120, y: plot.maxY + 3, width: 120, height: 11),
+             font: .systemFont(ofSize: 8), color: Ink.muted, align: .left)
+
+        return rect.maxY
+    }
+
+    private static func drawDailyTable(_ report: HealthReport, top: CGFloat) -> CGFloat {
+        guard !report.daily.isEmpty else { return top }
+
+        var y = top
+        text("ملخص يومي",
+             CGRect(x: margin, y: y, width: contentWidth, height: 14),
+             font: .systemFont(ofSize: 11, weight: .semibold), color: Ink.text)
+        y += 20
+
+        let widths: [CGFloat] = [96, 62, 62, 82, 72, 78, 63]
+        let headers = ["التاريخ", "القراءات", "التقييم", "متوسط النبض", "أعلى نبض", "أدنى أكسجين", "أعلى حرارة"]
+        y = drawTableHeader(headers, widths: widths, top: y)
+
+        let limit = min(report.daily.count, 12)
+        for stat in report.daily.prefix(limit) {
+            let cells = columns(widths: widths, top: y)
+            let font = UIFont.systemFont(ofSize: 9.5)
+            let mono = UIFont.monospacedDigitSystemFont(ofSize: 9.5, weight: .regular)
+
+            text(ReportFormat.dayMonth.string(from: stat.day), cells[0], font: font, color: Ink.text)
+            text("\(stat.count)", cells[1], font: mono, color: Ink.muted)
+            text("\(stat.score)", cells[2], font: mono, color: color(stat.band))
+            text(stat.avgHeartRate.map { "\(Int($0.rounded()))" } ?? "—", cells[3], font: mono, color: Ink.text)
+            text(stat.maxHeartRate.map { "\(Int($0.rounded()))" } ?? "—", cells[4], font: mono, color: Ink.text)
+            text(stat.minSpo2.map { "\(Int($0.rounded()))%" } ?? "—", cells[5], font: mono, color: Ink.text)
+            text(stat.maxTemp.map { String(format: "%.1f", $0) } ?? "—", cells[6], font: mono, color: Ink.text)
+
+            y += rowHeight
+            rule(at: y)
+        }
+
+        if report.daily.count > limit {
+            text("وأيام أخرى — التفصيل الكامل في سجل القراءات",
+                 CGRect(x: margin, y: y + 4, width: contentWidth, height: 12),
+                 font: .systemFont(ofSize: 9), color: Ink.muted)
+            y += 18
+        }
+        return y
+    }
+
+    // MARK: صفحات سجل القراءات
+
+    private static func drawReadingsPage(_ report: HealthReport, pageIndex: Int) {
+        var y: CGFloat = margin
+        let start = pageIndex * rowsPerPage
+        let end = min(start + rowsPerPage, report.readings.count)
+
+        text("سجل القراءات", CGRect(x: margin, y: y, width: contentWidth, height: 20),
+             font: .systemFont(ofSize: 15, weight: .semibold), color: Ink.text)
+        y += 20
+
+        var caption = "القراءات \(start + 1)–\(end) من \(report.readings.count) · الأحدث أولاً"
+        if report.isTruncated {
+            caption += " · أحدث \(report.readings.count) قراءة من أصل \(report.readingsTotal)"
+        }
+        text(caption, CGRect(x: margin, y: y, width: contentWidth, height: 14),
+             font: .systemFont(ofSize: 10), color: Ink.muted)
+        y += 22
+
+        let widths: [CGFloat] = [104, 72, 78, 92, 82, 87]
+        y = drawTableHeader(["الوقت", "النبض", "الأكسجين", "الضغط", "الحرارة", "الحالة"],
+                            widths: widths, top: y)
+
+        for reading in report.readings[start..<end] {
+            let cells = columns(widths: widths, top: y)
+            let mono = UIFont.monospacedDigitSystemFont(ofSize: 9.5, weight: .regular)
+
+            text(ReportFormat.time.string(from: reading.date), cells[0], font: mono, color: Ink.text)
+            text(reading.heartRate, cells[1], font: mono, color: Ink.text)
+            text(reading.spo2, cells[2], font: mono, color: Ink.text)
+            text(reading.pressure, cells[3], font: mono, color: Ink.text)
+            text(reading.temperature, cells[4], font: mono, color: Ink.text)
+            text(reading.band.title, cells[5],
+                 font: .systemFont(ofSize: 9.5, weight: .medium), color: color(reading.band))
+
+            y += rowHeight
+            rule(at: y)
+        }
+    }
+
+    // MARK: التذييل
+
+    private static func drawFooter(page pageNumber: Int, of total: Int, report: HealthReport) {
+        let y = page.height - margin - 26
+        Ink.rule.setFill()
+        UIBezierPath(rect: CGRect(x: margin, y: y, width: contentWidth, height: 0.7)).fill()
+
+        text("تقرير إرشادي لسلامة العامل الميداني، مبني على قراءات السوار. ليس تشخيصاً طبياً.",
+             CGRect(x: margin, y: y + 7, width: contentWidth - 90, height: 12),
+             font: .systemFont(ofSize: 8), color: Ink.muted)
+
+        text("صفحة \(pageNumber) من \(total)",
+             CGRect(x: page.width - margin - 90, y: y + 7, width: 90, height: 12),
+             font: .systemFont(ofSize: 8), color: Ink.muted, align: .left)
+
+        text("أُنشئ في \(ReportFormat.full.string(from: report.generatedAt))",
+             CGRect(x: margin, y: y + 19, width: contentWidth, height: 12),
+             font: .systemFont(ofSize: 8), color: Ink.muted)
+    }
+
+    // MARK: أدوات الرسم
+
+    private static func drawTableHeader(_ titles: [String], widths: [CGFloat], top: CGFloat) -> CGFloat {
+        let cells = columns(widths: widths, top: top)
+        for (i, t) in titles.enumerated() where i < cells.count {
+            text(t, cells[i], font: .systemFont(ofSize: 9, weight: .semibold), color: Ink.muted)
+        }
+
+        let y = top + 15
+        Ink.rule.setFill()
+        UIBezierPath(rect: CGRect(x: margin, y: y, width: contentWidth, height: 0.7)).fill()
+
+        return y + 4
+    }
+
+    /// أعمدة من اليمين إلى اليسار.
+    private static func columns(widths: [CGFloat], top: CGFloat) -> [CGRect] {
+        var x = page.width - margin
+        return widths.map { w in
+            x -= w
+            return CGRect(x: x, y: top, width: w, height: rowHeight - 3)
+        }
+    }
+
+    private static func rule(at y: CGFloat) {
+        Ink.rule.setFill()
+        UIBezierPath(rect: CGRect(x: margin, y: y - 3, width: contentWidth, height: 0.5)).fill()
+    }
+
+    private static func card(_ rect: CGRect) {
+        Ink.cardFill.setFill()
+        Ink.rule.setStroke()
+        let path = UIBezierPath(roundedRect: rect, cornerRadius: 8)
+        path.fill()
+        path.lineWidth = 0.7
+        path.stroke()
+    }
+
+    private static func text(_ string: String, _ rect: CGRect,
+                             font: UIFont, color: UIColor,
+                             align: NSTextAlignment = .right, lines: Int = 1) {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = align
+        paragraph.baseWritingDirection = .rightToLeft
+        paragraph.lineBreakMode = lines == 1 ? .byTruncatingTail : .byWordWrapping
+        paragraph.lineSpacing = lines == 1 ? 0 : 2
+
+        (string as NSString).draw(in: rect, withAttributes: [
+            .font: font,
+            .foregroundColor: color,
+            .paragraphStyle: paragraph
+        ])
+    }
 }
 
-struct DashboardPDFView: View {
-    let employeeID: String
-    let assessment: HealthAssessment
-    let forecast: ForecastResult
-    let samples: [VitalSample]
+private extension CGRect {
+    func with(height newHeight: CGFloat) -> CGRect {
+        CGRect(x: minX, y: minY, width: width, height: newHeight)
+    }
+}
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            HStack {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("تقرير السجل الصحي")
-                        .font(.system(size: 32, weight: .bold))
-                    Text("العامل الميداني: \(employeeID)")
-                        .font(.system(size: 16))
-                        .foregroundColor(.gray)
-                }
-                Spacer()
-                Text(DateFormatter.localizedString(from: Date(), dateStyle: .medium, timeStyle: .short))
-                    .font(.system(size: 14))
-                    .foregroundColor(.gray)
-            }
-            
-            Divider().background(Color.gray)
 
-            HStack(spacing: 24) {
-                VStack {
-                    Text("\(assessment.score)")
-                        .font(.system(size: 48, weight: .bold))
-                    Text("من ١٠٠")
-                        .font(.system(size: 14))
-                }
-                .frame(width: 120, height: 120)
-                .background(assessment.band.color.opacity(0.15))
-                .cornerRadius(16)
-                .overlay(RoundedRectangle(cornerRadius: 16).stroke(assessment.band.color, lineWidth: 2))
+//
+//  ShareHealthReportView.swift
+//  SecurityPass
+//
+//  شاشة مشاركة الوضع الصحي: اختيار الفترة، معاينة، ثم إنشاء PDF ومشاركته.
+//  تحل محل ورقة المشاركة النصية الحالية.
+//
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("الحالة الحالية: \(assessment.band.title)")
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundColor(assessment.band.color)
-                    Text(assessment.headline)
-                        .font(.system(size: 15))
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
+import SwiftUI
+import UIKit
 
-            Text("ملخص المؤشرات الحيوية")
-                .font(.system(size: 18, weight: .bold))
-                .padding(.top, 10)
+public struct ShareHealthReportView: View {
+    public let samples: [VitalSample]
+    public let employeeID: String
 
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
-                ForEach(assessment.indicators, id: \.kind) { indicator in
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(indicator.kind.title)
-                            .font(.system(size: 16, weight: .semibold))
-                        HStack(alignment: .firstTextBaseline) {
-                            Text(indicator.display)
-                                .font(.system(size: 28, weight: .bold))
-                            Text(indicator.kind.unit)
-                                .font(.system(size: 12))
-                                .foregroundColor(.gray)
-                        }
-                        Text(indicator.band.title)
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(indicator.band.color)
+    @State private var period: ReportPeriod = .week
+    @State private var report: HealthReport?
+    @State private var isPreparing = true
+    @State private var isBuilding = false
+    @State private var payload: SharePayload?
+    @State private var failure: String?
+    @Environment(\.presentationMode) private var presentation
+
+    public init(samples: [VitalSample], employeeID: String) {
+        self.samples = samples
+        self.employeeID = employeeID
+    }
+
+    public var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    periodPicker
+
+                    if isPreparing {
+                        placeholder("جارٍ تجهيز الملخص…")
+                    } else if let report = report, !report.isEmpty {
+                        summaryCard(report)
+                        contentsCard(report)
+                    } else {
+                        placeholder("لا توجد قراءات في هذه الفترة.")
                     }
-                    .padding(16)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.gray.opacity(0.08))
-                    .cornerRadius(12)
-                }
-            }
 
-            Divider().background(Color.gray).padding(.top, 10)
+                    shareButton
 
-            Text("سجل القراءات السابقة (آخر القراءات)")
-                .font(.system(size: 18, weight: .bold))
-            
-            VStack(spacing: 0) {
-                ForEach(samples.sorted(by: { $0.sampleDate > $1.sampleDate }).prefix(20), id: \.sampleDate) { sample in
-                    HStack {
-                        Text(timeString(sample.sampleDate))
-                            .font(.system(size: 12, weight: .bold))
-                            .frame(width: 70, alignment: .leading)
-                        Spacer()
-                        if let hr = sample.vHeartRate { Text("نبض: \(hr)").frame(width: 70, alignment: .leading) }
-                        Spacer()
-                        if let o = sample.vSpo2 { Text("أكسجين: \(o)%").frame(width: 80, alignment: .leading) }
-                        Spacer()
-                        if let s = sample.systolic, let d = sample.diastolic { Text("ضغط: \(s)/\(d)").frame(width: 80, alignment: .leading) }
-                        Spacer()
-                        if let t = sample.bodyTemp { Text("حرارة: \(String(format: "%.1f", t))").frame(width: 70, alignment: .leading) }
+                    if let failure = failure {
+                        Text(failure)
+                            .font(.system(size: 12))
+                            .foregroundColor(SP.Color.dangerText)
                     }
-                    .font(.system(size: 12))
-                    .padding(.vertical, 8)
-                    Divider()
-                }
-            }
 
-            Spacer()
+                    Text("يُنشأ الملف على جهازك ويُشارك عبر قائمة المشاركة. لا يُرفع إلى أي خادم.")
+                        .font(.system(size: 11))
+                        .lineSpacing(3)
+                        .foregroundColor(SP.Color.muted)
+                }
+                .padding(20)
+            }
+            .background(SP.Color.ground.ignoresSafeArea())
+            .navigationBarTitle("مشاركة الوضع الصحي", displayMode: .inline)
+            .navigationBarItems(trailing: Button("إغلاق") {
+                presentation.wrappedValue.dismiss()
+            })
         }
-        .padding(40)
-        .frame(width: 595.2, height: 841.8)
-        .background(Color.white)
-        .foregroundColor(.black)
         .environment(\.layoutDirection, .rightToLeft)
+        .onAppear(perform: rebuild)
+        .onChange(of: period) { _ in rebuild() }
+        .sheet(item: $payload) { item in
+            ActivityView(url: item.url)
+        }
     }
 
-    private func timeString(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "ar_SA")
-        f.dateFormat = "hh:mm a"
-        return f.string(from: date)
+    // MARK: الأجزاء
+
+    private var periodPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("الفترة")
+                .font(.system(size: 12))
+                .foregroundColor(SP.Color.muted)
+
+            Picker("الفترة", selection: $period) {
+                ForEach(ReportPeriod.allCases) { p in
+                    Text(p.title).tag(p)
+                }
+            }
+            .pickerStyle(.segmented)
+        }
+    }
+
+    private func placeholder(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 13))
+            .foregroundColor(SP.Color.muted)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 32)
+            .background(cardShape)
+    }
+
+    private func summaryCard(_ report: HealthReport) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text("\(report.assessment.score)")
+                    .font(.system(size: 30, weight: .semibold, design: .monospaced))
+                    .foregroundColor(SP.Color.text)
+                Text("من ١٠٠ · \(report.assessment.band.title)")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(SP.Color.accent)
+                Spacer(minLength: 0)
+            }
+            Text(report.assessment.headline)
+                .font(.system(size: 12))
+                .lineSpacing(4)
+                .foregroundColor(SP.Color.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(cardShape)
+    }
+
+    private func contentsCard(_ report: HealthReport) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("محتويات التقرير")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(SP.Color.text)
+
+            bullet("التقييم العام وتفسيره")
+            bullet("ملخص كل مؤشر: الأدنى والمتوسط والأعلى ونسبة الوقت ضمن النطاق")
+            bullet("مسار نبض القلب خلال الفترة")
+            bullet("ملخص يومي لـ \(report.daily.count) يوم")
+            bullet(report.isTruncated
+                   ? "سجل بأحدث \(report.readings.count) قراءة من أصل \(report.readingsTotal)"
+                   : "سجل كامل بـ \(report.readings.count) قراءة")
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(cardShape)
+    }
+
+    private func bullet(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Circle()
+                .fill(SP.Color.accent)
+                .frame(width: 5, height: 5)
+                .padding(.top, 6)
+
+            Text(text)
+                .font(.system(size: 12))
+                .lineSpacing(3)
+                .foregroundColor(SP.Color.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var shareButton: some View {
+        let ready = !(report?.isEmpty ?? true) && !isPreparing
+
+        return Button(action: build) {
+            HStack(spacing: 8) {
+                if isBuilding {
+                    ProgressView().tint(SP.Color.ground)
+                } else {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                Text(isBuilding ? "جارٍ إنشاء الملف…" : "إنشاء PDF ومشاركته")
+                    .font(.system(size: 15, weight: .semibold))
+            }
+            .frame(maxWidth: .infinity, minHeight: 50)
+            .foregroundColor(SP.Color.ground)
+            .background(SP.Color.accent)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .disabled(isBuilding || !ready)
+        .opacity(ready ? 1 : 0.4)
+    }
+
+    private var cardShape: some View {
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .fill(SP.Color.card)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(SP.Color.raised, lineWidth: 1)
+            )
+    }
+
+    // MARK: البناء
+
+    /// تقرير شهر قد يحمل عشرات الآلاف من القراءات — التجميع والرسم خارج الخيط الرئيسي.
+    private func rebuild() {
+        isPreparing = true
+        failure = nil
+        let snapshot = samples
+        let id = employeeID
+        let selected = period
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let built = HealthReportBuilder.build(from: snapshot, employeeID: id, period: selected)
+            DispatchQueue.main.async {
+                guard selected == period else { return }   // تجاهل نتيجة فترة قديمة
+                report = built
+                isPreparing = false
+            }
+        }
+    }
+
+    private func build() {
+        guard let snapshot = report else { return }
+
+        isBuilding = true
+        failure = nil
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let url = try HealthReportPDF.render(snapshot)
+                DispatchQueue.main.async {
+                    isBuilding = false
+                    payload = SharePayload(url: url)
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    isBuilding = false
+                    failure = "تعذّر إنشاء الملف. حاول مرة أخرى."
+                }
+            }
+        }
+    }
+}
+
+private struct SharePayload: Identifiable {
+    let url: URL
+    var id: String { url.absoluteString }
+}
+
+// MARK: - قائمة المشاركة
+
+private struct ActivityView: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [url], applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {
+        // التطبيق يدعم iPad (UIDeviceFamily = 1,2) — بلا مصدر للـ popover ينهار هناك.
+        guard let popover = controller.popoverPresentationController, popover.sourceView == nil else { return }
+        popover.sourceView = controller.view
+        popover.permittedArrowDirections = []
+        popover.sourceRect = CGRect(x: controller.view.bounds.midX,
+                                    y: controller.view.bounds.midY,
+                                    width: 1, height: 1)
     }
 }
