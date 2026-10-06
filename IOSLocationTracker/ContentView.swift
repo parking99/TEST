@@ -421,13 +421,13 @@ import Foundation
 /// اجعل `SyncHistoryRecord` يطابقه عبر الامتداد في آخر الملف.
 public protocol VitalSample {
     var sampleDate: Date { get }
-    var heartRate: Int? { get }
-    var spo2: Int? { get }
+    var vHeartRate: Int? { get }
+    var vSpo2: Int? { get }
     var systolic: Int? { get }
     var diastolic: Int? { get }
     var bodyTemp: Double? { get }
-    var latitude: Double? { get }
-    var longitude: Double? { get }
+    var vLatitude: Double? { get }
+    var vLongitude: Double? { get }
 }
 
 // MARK: - الإعدادات (ملف ضبط واحد)
@@ -623,21 +623,21 @@ public enum HealthEngine {
 
         var indicators: [IndicatorReading] = []
 
-        if let hr = latest.heartRate.map(Double.init) {
+        if let hr = latest.vHeartRate.map(Double.init) {
             indicators.append(reading(
                 kind: .heartRate, value: hr, display: "\(Int(hr))",
                 band: config.heartRate, weight: config.weightHeartRate,
                 trend: trend(of: trendWindow, config: config,
-                             threshold: config.heartRate.criticalHigh) { $0.heartRate.map(Double.init) }
+                             threshold: config.heartRate.criticalHigh) { $0.vHeartRate.map(Double.init) }
             ))
         }
 
-        if let spo2 = latest.spo2.map(Double.init) {
+        if let spo2 = latest.vSpo2.map(Double.init) {
             indicators.append(reading(
                 kind: .spo2, value: spo2, display: "\(Int(spo2))",
                 band: config.spo2, weight: config.weightSpo2,
                 trend: trend(of: trendWindow, config: config,
-                             threshold: config.spo2.criticalLow) { $0.spo2.map(Double.init) }
+                             threshold: config.spo2.criticalLow) { $0.vSpo2.map(Double.init) }
             ))
         }
 
@@ -660,7 +660,7 @@ public enum HealthEngine {
             ))
         }
 
-        let hrSeries = trendWindow.compactMap { $0.heartRate.map(Double.init) }
+        let hrSeries = trendWindow.compactMap { $0.vHeartRate.map(Double.init) }
         if hrSeries.count >= 3 {
             let sd = standardDeviation(hrSeries)
             indicators.append(reading(
@@ -704,11 +704,11 @@ public enum HealthEngine {
         }
 
         let hrTrend = trend(of: window, config: config,
-                            threshold: config.heartRate.criticalHigh) { $0.heartRate.map(Double.init) }
+                            threshold: config.heartRate.criticalHigh) { $0.vHeartRate.map(Double.init) }
         let tempTrend = trend(of: window, config: config,
                               threshold: config.bodyTemp.criticalHigh) { $0.bodyTemp }
         let spo2Trend = trend(of: window, config: config,
-                              threshold: config.spo2.criticalLow) { $0.spo2.map(Double.init) }
+                              threshold: config.spo2.criticalLow) { $0.vSpo2.map(Double.init) }
         let sysTrend = trend(of: window, config: config,
                              threshold: config.systolic.criticalHigh) { $0.systolic.map(Double.init) }
 
@@ -716,7 +716,7 @@ public enum HealthEngine {
         var risks: [RiskForecast] = []
 
         // نمط ١ — إجهاد قلبي حراري: نبض صاعد + حرارة صاعدة + ثبات الموقع.
-        if let hr = hrTrend, let current = latest.heartRate.map(Double.init) {
+        if let hr = hrTrend, let current = latest.vHeartRate.map(Double.init) {
             var p = probability(current: current, threshold: config.heartRate.criticalHigh,
                                 normalEdge: config.heartRate.normal.upperBound,
                                 trend: hr, coverage: coverage)
@@ -776,7 +776,7 @@ public enum HealthEngine {
         }
 
         // نمط ٤ — نقص أكسجة (اتجاه هابط، فالعتبة من الأسفل).
-        if let spo2 = spo2Trend, let current = latest.spo2.map(Double.init) {
+        if let spo2 = spo2Trend, let current = latest.vSpo2.map(Double.init) {
             let p = probabilityDescending(current: current, threshold: config.spo2.criticalLow,
                                           normalEdge: config.spo2.normal.lowerBound,
                                           trend: spo2, coverage: coverage)
@@ -918,7 +918,7 @@ public enum HealthEngine {
     /// إزاحة الموقع تُحسب من الإحداثيات المخزّنة أصلاً — إشارة حركة بلا حسّاس إضافي.
     static func isStationary(_ samples: [VitalSample], metres: Double = 20) -> Bool {
         let points = samples.compactMap { s -> (Double, Double)? in
-            guard let la = s.latitude, let lo = s.longitude else { return nil }
+            guard let la = s.vLatitude, let lo = s.vLongitude else { return nil }
             return (la, lo)
         }
         guard let first = points.first, let last = points.last, points.count >= 2 else { return false }
@@ -994,8 +994,8 @@ public enum HealthEngine {
 
 extension SyncHistoryRecord: VitalSample {
     public var sampleDate: Date  { timestamp }
-    public var heartRate: Int?   { self.heartRate > 0 ? self.heartRate : nil }
-    public var spo2: Int?        { self.spo2 > 0 ? self.spo2 : nil }
+    public var vHeartRate: Int?   { self.heartRate > 0 ? self.heartRate : nil }
+    public var vSpo2: Int?        { self.spo2 > 0 ? self.spo2 : nil }
     public var systolic: Int?    { 
         let parts = bloodPressure.split(separator: "/")
         guard parts.count == 2, let sys = Int(parts[0]), sys > 0 else { return nil }
@@ -1007,8 +1007,8 @@ extension SyncHistoryRecord: VitalSample {
         return dia
     }
     public var bodyTemp: Double? { nil } // Not available in SyncHistoryRecord
-    public var latitude: Double? { self.latitude != 0.0 ? self.latitude : nil }
-    public var longitude: Double? { self.longitude != 0.0 ? self.longitude : nil }
+    public var vLatitude: Double? { self.latitude != 0.0 ? self.latitude : nil }
+    public var vLongitude: Double? { self.longitude != 0.0 ? self.longitude : nil }
 }
 
 //
@@ -1271,8 +1271,8 @@ public struct HistoryScreen: View {
     private func series(for kind: VitalKind) -> [Double] {
         let sorted = samples.sorted { $0.sampleDate < $1.sampleDate }.suffix(40)
         switch kind {
-        case .heartRate: return sorted.compactMap { $0.heartRate.map(Double.init) }
-        case .spo2:      return sorted.compactMap { $0.spo2.map(Double.init) }
+        case .heartRate: return sorted.compactMap { $0.vHeartRate.map(Double.init) }
+        case .spo2:      return sorted.compactMap { $0.vSpo2.map(Double.init) }
         case .bodyTemp:  return sorted.compactMap { $0.bodyTemp }
         case .pressure:  return sorted.compactMap { $0.systolic.map(Double.init) }
         case .stability: return []
@@ -1529,15 +1529,15 @@ private struct ReadingRow: View {
 
     private var vitalsLine: String {
         var parts: [String] = []
-        if let hr = sample.heartRate { parts.append("\(hr) bpm") }
-        if let o = sample.spo2 { parts.append("\(o)%") }
+        if let hr = sample.vHeartRate { parts.append("\(hr) bpm") }
+        if let o = sample.vSpo2 { parts.append("\(o)%") }
         if let t = sample.bodyTemp { parts.append(String(format: "%.1f°", t)) }
         if let s = sample.systolic, let d = sample.diastolic { parts.append("\(s)/\(d)") }
         return parts.isEmpty ? "لا توجد قراءة — السوار غير متصل" : parts.joined(separator: " · ")
     }
 
     private var dotColor: Color {
-        guard sample.heartRate != nil || sample.spo2 != nil else { return SP.Color.muted }
+        guard sample.vHeartRate != nil || sample.vSpo2 != nil else { return SP.Color.muted }
         let single = HealthEngine.assess([sample], now: sample.sampleDate)
         return single.band.color
     }
