@@ -11,19 +11,6 @@ struct SyncHistoryRecord: Codable, Identifiable {
     let longitude: Double
     let isSos: Bool
 }
-
-
-struct SyncHistoryRecord: Codable, Identifiable {
-    var id: UUID = UUID()
-    let timestamp: Date
-    let heartRate: Int
-    let spo2: Int
-    let bloodPressure: String
-    let battery: Int
-    let latitude: Double
-    let longitude: Double
-    let isSos: Bool
-}
 class GoogleSheetSyncManager: ObservableObject {
     static let shared = GoogleSheetSyncManager()
     
@@ -249,6 +236,7 @@ class GoogleSheetSyncManager: ObservableObject {
         task.resume()
     }
 }
+
 
 
 
