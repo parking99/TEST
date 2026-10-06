@@ -42,6 +42,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
 
     var currentConnectedModel: IDODeviceModel?
     private var periodicTimer: AnyCancellable?
+    private var healthSyncTimer: AnyCancellable?
     private var autoReconnectTimer: Timer?
     private var isBindingInProgress: Bool = false
     private var isInitialized: Bool = false
@@ -1141,11 +1142,24 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                     GoogleSheetSyncManager.shared.checkAndTriggerPeriodicSyncIfNeeded()
                 }
             }
+            
+        healthSyncTimer?.cancel()
+        healthSyncTimer = Timer.publish(every: 60, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                if self?.isConnected == true && self?.isActivated == true {
+                    if !(self?.isSyncingHealth ?? true) {
+                        self?.syncHealthData()
+                    }
+                }
+            }
     }
 
     private func stopPeriodicSync() {
         periodicTimer?.cancel()
         periodicTimer = nil
+        healthSyncTimer?.cancel()
+        healthSyncTimer = nil
     }
 
     // MARK: - IDOBleDelegate Implementation
@@ -1298,16 +1312,19 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
 
     func listenDeviceNotification(model: IDODeviceNotificationModel) {
         DispatchQueue.main.async {
-            // Note: model.parameter is an event parameter (e.g. battery level %, alarm ID, goal %),
-            // NOT heart rate. Never assign model.parameter to heart rate.
-
-            // When device notifies of new heart rate, blood oxygen, or step data
             let type = model.dataType?.intValue ?? 0
-            if type == 2 || type == 3 || type == 15 || type == 23 || type == 64 || type == 65 {
+            
+            // If battery notification, parameter often contains the level
+            if type == 1, let val = model.parameter?.intValue, (1...100).contains(val) {
+                self.currentBattery = val
+                UserDefaults.standard.set(val, forKey: "last_battery")
+            }
+            
+            if type == 1 || type == 2 || type == 3 || type == 15 || type == 23 || type == 64 || type == 65 {
                 print("[IdoSmartManager] Device notification dataType=\(type) -> Refreshing health metrics")
                 self.requestLiveMetrics()
                 // Sync health data to get historical/completed measurements that don't come via live stream
-                if !self.isSyncingHealth {
+                if !self.isSyncingHealth && (type == 65 || type == 2 || type == 3) {
                     self.syncHealthData()
                 }
             }
