@@ -592,7 +592,6 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         statusMessage = "جارٍ تنشيط شاشة وحساسات الساعة... ⚡"
 
         // Log device capabilities (Bug 3: sensor switch validation)
-        let sdk = protocol_channel.IDOManager.shareInstance()
         if let ft = sdk.funcTable {
             print("[IdoSmartManager] DEVICE FEATURES: syncHeartRate=\(ft.syncHeartRate) supportControlMeasureSpo2=\(ft.supportControlMeasureSpo2) syncV3Spo2=\(ft.syncV3Spo2)")
         }
