@@ -11,6 +11,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         initFlutterEngine()
         LocationManager.shared.requestPermissions()
         IdoSmartManager.shared.initSdk()
+        HealthAlertCenter.shared.requestAuthorization()
+        HealthAlertCenter.shared.buzzWatch = nil
         return true
     }
 

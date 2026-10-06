@@ -221,6 +221,11 @@ class GoogleSheetSyncManager: ObservableObject {
                 if let historyData = try? JSONEncoder().encode(self?.history) {
                     UserDefaults.standard.set(historyData, forKey: "sync_history_logs")
                 }
+                if let currentHistory = self?.history {
+                    DispatchQueue.main.async {
+                        HealthAlertCenter.shared.evaluate(HealthEngine.assess(currentHistory))
+                    }
+                }
                 completion?(.success(respString))
             }
         }

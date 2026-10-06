@@ -38,6 +38,7 @@ enum SP {
         // حالات
         static let ok          = SwiftUI.Color(hex: 0x00FF86)   // أخضر الشعار — متصل/نجاح
         static let okDeep      = SwiftUI.Color(hex: 0x00A86B)
+        static let caution     = SwiftUI.Color(hex: 0xFF9F0A)
         static let okSurface   = SwiftUI.Color(hex: 0x00263F)
         static let measure     = SwiftUI.Color(hex: 0x32C2FF)   // قياس
         static let danger      = SwiftUI.Color(hex: 0xFF393C)   // تعبئة SOS
