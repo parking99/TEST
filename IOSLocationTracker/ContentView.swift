@@ -32,6 +32,7 @@ struct ContentView: View {
                     StatusScreen(ido: ido, location: location, employeeId: employeeId) {
                         tab = .devices
                     }
+                case .history:  HistoryScreen()
                 case .devices:  DevicesScreen(ido: ido)
                 case .sos:      SOSScreen(ido: ido, location: location, employeeId: employeeId)
                 case .identity: IdentityScreen(ido: ido, location: location, employeeId: $employeeId)
@@ -423,7 +424,7 @@ struct HistoryRow: View {
             }
         }
         .padding()
-        .background(SP.Color.surface)
+        .background(SP.Color.card)
         .cornerRadius(SP.Metric.controlRadius)
     }
 }
