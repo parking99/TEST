@@ -2170,9 +2170,9 @@ public enum HealthReportPDF {
                 ctx.beginPage()
                 drawReadingsPage(report, pageIndex: index)
                 drawFooter(page: index + 2, of: totalPages, report: report)
+            }
         }
         try data.write(to: url)
-        }
         return url
     }
 
