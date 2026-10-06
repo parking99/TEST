@@ -22,7 +22,6 @@ class GoogleSheetSyncManager: ObservableObject {
     @Published var lastSyncStatus: String = "Ù„Ù… ØªØªÙ… Ø§Ù„Ù…Ø²Ø§Ù…Ù†Ø© Ø¨Ø¹Ø¯"
     @Published var isAutoSyncActive: Bool = false
     @Published var history: [SyncHistoryRecord] = []
-    @Published var history: [SyncHistoryRecord] = []
 
     private var autoSyncTimer: Timer?
     private var lastSyncAttemptTime: Date = .distantPast
