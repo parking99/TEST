@@ -2179,7 +2179,7 @@ public enum HealthReportPDF {
     public static func fileName(for report: HealthReport) -> String {
         let stamp = ReportFormat.fileStamp.string(from: report.generatedAt)
         let id = report.employeeID.replacingOccurrences(of: " ", with: "_")
-        return "SecurityPass_Health_\(id)_\(stamp).pdf"
+        return "SecurityPass_Health_\(id)_\(stamp)_\(UUID().uuidString.prefix(4)).pdf"
     }
 
     // MARK: الصفحة الأولى
@@ -2592,7 +2592,7 @@ public struct ShareHealthReportView: View {
                             .foregroundColor(SP.Color.dangerText)
                     }
 
-                    Text("يُنشأ الملف على جهازك ويُشارك عبر قائمة المشاركة. لا يُرفع إلى أي خادم.")
+                    Text("يُنشأ الملف على جهازك ويُشارك عبر قائمة المشاركة.")
                         .font(.system(size: 11))
                         .lineSpacing(3)
                         .foregroundColor(SP.Color.muted)
