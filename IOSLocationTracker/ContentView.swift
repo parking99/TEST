@@ -1,5 +1,5 @@
 import UserNotifications
-﻿//
+//
 //  ContentView.swift
 //  SecurityPass â€” Ø§Ù„ÙˆØ§Ø¬Ù‡Ø© Ø§Ù„Ø¬Ø¯ÙŠØ¯Ø©
 //
