@@ -2159,10 +2159,9 @@ public enum HealthReportPDF {
         format.documentInfo = info
 
         let renderer = UIGraphicsPDFRenderer(bounds: page, format: format)
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent(fileName(for: report))
+        let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(fileName(for: report))
 
-        try renderer.writePDF(to: url) { ctx in
+        let data = renderer.pdfData { ctx in
             ctx.beginPage()
             drawSummaryPage(report)
             drawFooter(page: 1, of: totalPages, report: report)
@@ -2171,14 +2170,15 @@ public enum HealthReportPDF {
                 ctx.beginPage()
                 drawReadingsPage(report, pageIndex: index)
                 drawFooter(page: index + 2, of: totalPages, report: report)
-            }
+        }
+        try data.write(to: url)
         }
         return url
     }
 
     public static func fileName(for report: HealthReport) -> String {
         let stamp = ReportFormat.fileStamp.string(from: report.generatedAt)
-        let id = report.employeeID.replacingOccurrences(of: " ", with: "_")
+        let id = report.employeeID.components(separatedBy: CharacterSet.alphanumerics.inverted).joined()
         return "SecurityPass_Health_\(id)_\(stamp)_\(UUID().uuidString.prefix(4)).pdf"
     }
 
@@ -2763,7 +2763,7 @@ public struct ShareHealthReportView: View {
             } catch {
                 DispatchQueue.main.async {
                     isBuilding = false
-                    failure = "تعذّر إنشاء الملف. حاول مرة أخرى."
+                    failure = "Error: " + error.localizedDescription
                 }
             }
         }
