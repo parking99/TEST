@@ -43,6 +43,11 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
     var currentConnectedModel: IDODeviceModel?
     private var periodicTimer: AnyCancellable?
     private var healthSyncTimer: AnyCancellable?
+    
+    // Battery Hysteresis State
+    private var pendingBatteryDropValue: Int = 0
+    private var pendingBatteryDropConfirmCount: Int = 0
+    
     private var autoReconnectTimer: Timer?
     private var isBindingInProgress: Bool = false
     private var isInitialized: Bool = false
@@ -586,6 +591,12 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         isActivated = true
         statusMessage = "جارٍ تنشيط شاشة وحساسات الساعة... ⚡"
 
+        // Log device capabilities (Bug 3: sensor switch validation)
+        let sdk = IDOManager.shareInstance()
+        if let ft = sdk.funcTable {
+            print("[IdoSmartManager] DEVICE FEATURES: syncHeartRate=\(ft.syncHeartRate) supportControlMeasureSpo2=\(ft.supportControlMeasureSpo2) syncV3Spo2=\(ft.syncV3Spo2)")
+        }
+
         // Immediately seed saved & storage metrics so the screen is populated without waiting
         restoreSavedMetrics()
         readLatestMetricsFromStorage()
@@ -836,32 +847,43 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
             }
         }
 
-        // 2. Query measure manager for live heart rate & SpO2
-        IDOMeasureManager.shared.getMeasureData(type: .heartRate) { [weak self] result in
-            self?.handleLiveMeasureResult(result, type: .heartRate)
-        }
-        IDOMeasureManager.shared.getMeasureData(type: .spo2) { [weak self] result in
-            self?.handleLiveMeasureResult(result, type: .spo2)
-        }
+        // Real-time HR and SpO2 are processed entirely via the listenProcessMeasureData callback.
+        // Polling getMeasureData is explicitly documented to return static final values and interferes with the stream.
 
         // 3. Query battery
         _ = Cmds.getBatteryInfo().send { [weak self] res in
             if case .success(let model) = res, let m = model {
                 let b = Int(m.level)
+                // Documented charging status fields: 1=Charging, 2=Charging complete
                 let isCharging = (m.status == 1 || m.status == 2)
                 if (1...100).contains(b) {
                     DispatchQueue.main.async {
                         guard let self = self else { return }
-                        // Hysteresis: only accept increases if charging.
-                        // (Fuel gauges can fluctuate +/- 1% under load, so we prevent artificial jumping).
-                        if isCharging {
+                        
+                        if self.currentBattery == 0 {
+                            // Initial value
                             self.currentBattery = b
-                        } else {
-                            // If not charging, only accept drops (or same value)
-                            if b <= self.currentBattery || self.currentBattery == 0 {
-                                self.currentBattery = b
+                        } else if isCharging && b > self.currentBattery {
+                            // Accept increase immediately if charging
+                            self.currentBattery = b
+                            self.pendingBatteryDropConfirmCount = 0
+                        } else if b < self.currentBattery {
+                            // Require 2 consecutive confirmations to accept a drop
+                            if self.pendingBatteryDropValue == b {
+                                self.pendingBatteryDropConfirmCount += 1
+                                if self.pendingBatteryDropConfirmCount >= 2 {
+                                    self.currentBattery = b
+                                    self.pendingBatteryDropConfirmCount = 0
+                                }
+                            } else {
+                                self.pendingBatteryDropValue = b
+                                self.pendingBatteryDropConfirmCount = 1
                             }
+                        } else if b == self.currentBattery {
+                            // Reset drop counter if we read the current value again
+                            self.pendingBatteryDropConfirmCount = 0
                         }
+                        
                         UserDefaults.standard.set(self.currentBattery, forKey: "last_battery")
                     }
                 }
@@ -896,6 +918,9 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
 
     // MARK: - Live PPG Measurement Stream Handling
     private func handleLiveMeasureResult(_ result: IDOMeasureResult, type: IDOMeasureType? = nil) {
+        #if DEBUG
+        print("[IDO_TRACE] LIVE_STREAM | .value: \(result.value) | .oneClickHr: \(result.oneClickHr) | .oneClickSpo2: \(result.oneClickSpo2)")
+        #endif
         DispatchQueue.main.async {
             var changed = false
 
@@ -1134,16 +1159,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                 }
             }
             
-        healthSyncTimer?.cancel()
-        healthSyncTimer = Timer.publish(every: 60, on: .main, in: .common)
-            .autoconnect()
-            .sink { [weak self] _ in
-                if self?.isConnected == true && self?.isActivated == true {
-                    if !(self?.isSyncingHealth ?? true) {
-                        self?.syncHealthData()
-                    }
-                }
-            }
+        // Health sync is strictly event-driven via dataType = 19 to avoid jamming the BLE MTU during live HR.
     }
 
     private func stopPeriodicSync() {
@@ -1304,22 +1320,14 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
     func listenDeviceNotification(model: IDODeviceNotificationModel) {
         DispatchQueue.main.async {
             let type = model.dataType?.intValue ?? 0
+            #if DEBUG
+            print("[IdoSmartManager] Device notification dataType=\(type) param=\(model.parameter?.intValue ?? -1)")
+            #endif
             
-            // If battery notification, parameter often contains the level
-            if type == 1, let val = model.parameter?.intValue, (1...100).contains(val) {
-                // If not charging (we don't know charging status here, assume not charging for safety),
-                // only accept drops to prevent fuel gauge flutter.
-                if val <= self.currentBattery || self.currentBattery == 0 {
-                    self.currentBattery = val
-                    UserDefaults.standard.set(val, forKey: "last_battery")
-                }
-            }
-            
-            if type == 1 || type == 2 || type == 3 || type == 15 || type == 23 || type == 64 || type == 65 {
-                print("[IdoSmartManager] Device notification dataType=\(type) -> Refreshing health metrics")
-                self.requestLiveMetrics()
-                // Sync health data ONLY for manual one-off measurements like SpO2 (65) to avoid jamming BLE
-                if !self.isSyncingHealth && type == 65 {
+            // Documented: 19 = Manual health measurement sync request
+            // Triggers when a standalone sensor reading on the watch completes.
+            if type == 19 {
+                if !self.isSyncingHealth {
                     self.syncHealthData()
                 }
             }
