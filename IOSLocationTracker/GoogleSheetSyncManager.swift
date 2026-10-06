@@ -213,15 +213,7 @@ class GoogleSheetSyncManager: ObservableObject {
                 self?.lastSyncStatus = "ØªÙ…Øª Ø§Ù„Ù…Ø²Ø§Ù…Ù†Ø© Ø¨Ù†Ø¬Ø§Ø­ âœ…"
                 UserDefaults.standard.set(successDate, forKey: "last_google_sheet_sync_time")
                 print("[GoogleSheetSyncManager] Measurements sent successfully to Google Sheets at \(successDate)")
-                                let record = SyncHistoryRecord(timestamp: successDate, heartRate: heartRate, spo2: spo2, bloodPressure: bloodPressure, battery: battery, latitude: latitude, longitude: longitude, isSos: isSos)
-                self?.history.insert(record, at: 0)
-                if (self?.history.count ?? 0) > 50 {
-                    self?.history.removeLast((self?.history.count ?? 0) - 50)
-                }
-                if let historyData = try? JSONEncoder().encode(self?.history) {
-                    UserDefaults.standard.set(historyData, forKey: "sync_history_logs")
-                }
-                                let record = SyncHistoryRecord(timestamp: successDate, heartRate: heartRate, spo2: spo2, bloodPressure: bloodPressure, battery: battery, latitude: latitude, longitude: longitude, isSos: isSos)
+                let record = SyncHistoryRecord(timestamp: successDate, heartRate: heartRate, spo2: spo2, bloodPressure: bloodPressure, battery: battery, latitude: latitude, longitude: longitude, isSos: isSos)
                 self?.history.insert(record, at: 0)
                 if (self?.history.count ?? 0) > 50 {
                     self?.history.removeLast((self?.history.count ?? 0) - 50)
