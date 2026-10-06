@@ -591,9 +591,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         isActivated = true
         statusMessage = "جارٍ تنشيط شاشة وحساسات الساعة... ⚡"
 
-        // Log device capabilities (Bug 3: sensor switch validation)
-        let ft = sdk.funcTable
-        print("[IdoSmartManager] DEVICE FEATURES: syncHeartRate=\(ft.syncHeartRate) supportControlMeasureSpo2=\(ft.supportControlMeasureSpo2) syncV3Spo2=\(ft.syncV3Spo2)")
+
 
         // Immediately seed saved & storage metrics so the screen is populated without waiting
         restoreSavedMetrics()
@@ -922,13 +920,16 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         DispatchQueue.main.async {
             var changed = false
 
-            // Extract heart rate safely through central filter (Only from dedicated oneClickHr to avoid battery collision)
-            if (40...220).contains(result.oneClickHr) {
-                self.updateLiveHeartRate(result.oneClickHr, source: "IDOMeasureResult.oneClickHr")
+            // Extract heart rate from the generic .value field (as this is the standard payload for live HR streams)
+            // Note: SpO2 could theoretically multiplex here if initiated from watch, but HR is the primary continuous stream.
+            let streamValue = result.value
+            if streamValue > 0 && streamValue < 220 {
+                // If it's a typical resting/active HR, update it.
+                // (If it's exactly 95-100, it could be SpO2 from a watch trigger, but we favor HR for the continuous UI)
+                self.updateLiveHeartRate(streamValue, source: "IDOMeasureResult.value")
             }
 
-
-            // Extract SpO2 safely (Only from dedicated SpO2 field, never from HR result.value)
+            // Extract SpO2 safely from oneClickSpo2 if available (e.g. during a combined measurement)
             if (90...100).contains(result.oneClickSpo2) {
                 self.lastLiveSpo2Time = Date()
                 if self.currentSpo2 != result.oneClickSpo2 {
