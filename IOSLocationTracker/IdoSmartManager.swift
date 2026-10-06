@@ -956,7 +956,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
             if let num = Int(jsonStr.trimmingCharacters(in: .whitespacesAndNewlines)) {
                 if (40...220).contains(num) && type == .heartRate {
                     self.updateLiveHeartRate(num, source: "syncDirectString")
-                } else if (90...100).contains(num) && (type == .bloodOxygen || type == .spo2) {
+                } else if (90...100).contains(num) && (type == .bloodOxygen) {
                     if self.currentSpo2 != num {
                         self.currentSpo2 = num
                         UserDefaults.standard.set(num, forKey: "last_spo2")
@@ -1017,7 +1017,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
 
                 // SpO2
                 var spo2Keys = ["spo2", "blood_oxygen", "bloodOxygen", "o2"]
-                if type == .bloodOxygen || type == .spo2 { spo2Keys.append("value") }
+                if type == .bloodOxygen { spo2Keys.append("value") }
                 
                 for k in spo2Keys {
                     if let v = dict[k] {
@@ -1043,7 +1043,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                         if (40...220).contains(num) && type == .heartRate {
                             self.updateLiveHeartRate(num, source: "syncArray")
                             break
-                        } else if (90...100).contains(num) && (type == .bloodOxygen || type == .spo2) {
+                        } else if (90...100).contains(num) && (type == .bloodOxygen) {
                             if self.currentSpo2 != num {
                                 self.currentSpo2 = num
                                 UserDefaults.standard.set(num, forKey: "last_spo2")
