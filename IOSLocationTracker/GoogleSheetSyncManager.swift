@@ -38,7 +38,8 @@ class GoogleSheetSyncManager: ObservableObject {
 
         if let data = UserDefaults.standard.data(forKey: "sync_history_logs"),
            let savedHistory = try? JSONDecoder().decode([SyncHistoryRecord].self, from: data) {
-            self.history = savedHistory
+            let limitDate = Date().addingTimeInterval(-31 * 24 * 3600)
+            self.history = savedHistory.filter { $0.timestamp >= limitDate }
         }
     }
 
@@ -215,9 +216,9 @@ class GoogleSheetSyncManager: ObservableObject {
                 print("[GoogleSheetSyncManager] Measurements sent successfully to Google Sheets at \(successDate)")
                 let record = SyncHistoryRecord(timestamp: successDate, heartRate: heartRate, spo2: spo2, bloodPressure: bloodPressure, battery: battery, latitude: latitude, longitude: longitude, isSos: isSos)
                 self?.history.insert(record, at: 0)
-                if (self?.history.count ?? 0) > 50 {
-                    self?.history.removeLast((self?.history.count ?? 0) - 50)
-                }
+                // الاحتفاظ بالبيانات لمدة ٣١ يوماً بدلاً من ٥٠ قراءة فقط
+                let limitDate = Date().addingTimeInterval(-31 * 24 * 3600)
+                self?.history.removeAll { $0.timestamp < limitDate }
                 if let historyData = try? JSONEncoder().encode(self?.history) {
                     UserDefaults.standard.set(historyData, forKey: "sync_history_logs")
                 }
