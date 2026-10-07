@@ -46,7 +46,13 @@ struct ContentView: View {
         }
         .preferredColorScheme(.dark)
         .spArabic()
-        .onAppear { location.requestPermissions() }
+        .onAppear { 
+            location.requestPermissions()
+            HealthAlertCenter.shared.requestAuthorization()
+            if #available(iOS 16.1, *) {
+                HealthLiveActivityManager.shared.start(employeeID: employeeId, heartRate: 0, spo2: 0)
+            }
+        }
     }
 }
 

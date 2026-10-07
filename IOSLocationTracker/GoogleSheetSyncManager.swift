@@ -224,7 +224,20 @@ class GoogleSheetSyncManager: ObservableObject {
                 }
                 if let currentHistory = self?.history {
                     DispatchQueue.main.async {
-                        HealthAlertCenter.shared.evaluate(HealthEngine.assess(currentHistory))
+                        let assessment = HealthEngine.assess(currentHistory)
+                        HealthAlertCenter.shared.evaluate(assessment)
+                        let hr = heartRate > 0 ? heartRate : 0
+                        let o2 = spo2 > 0 ? spo2 : 0
+                        if hr > 0 || o2 > 0 {
+                            if #available(iOS 16.1, *) {
+                                HealthLiveActivityManager.shared.update(
+                                    heartRate: hr,
+                                    spo2: o2,
+                                    isCritical: assessment.score < 50,
+                                    message: assessment.headline
+                                )
+                            }
+                        }
                     }
                 }
                 completion?(.success(respString))
