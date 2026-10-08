@@ -528,6 +528,16 @@ public enum VitalKind: String, CaseIterable {
         }
     }
 
+    public var iconEmoji: String {
+        switch self {
+        case .heartRate: return "🫀"
+        case .spo2:      return "🫁"
+        case .bodyTemp:  return "🌡️"
+        case .pressure:  return "🩸"
+        case .stability: return "⏱️"
+        }
+    }
+
     public var unit: String {
         switch self {
         case .heartRate: return "bpm"
@@ -1080,8 +1090,8 @@ public final class HealthAlertCenter {
         lastNotified[indicator.kind] = now
 
         notify(
-            title: "\(indicator.kind.title) تجاوز الحد",
-            body: "\(indicator.kind.title) عند \(indicator.display) \(indicator.kind.unit) منذ أكثر من ٥ دقائق. توقف واسترِح، ثم أعد القياس."
+            title: "🚨 تحذير: \(indicator.kind.title) غير طبيعي",
+            body: "\(indicator.kind.iconEmoji) قيمة \(indicator.kind.title) أصبحت \(indicator.display)\(indicator.kind.unit) وهذا يمثل خطورة. يرجى التوقف وأخذ قسط من الراحة فوراً."
         )
 
         buzzWatch?()
