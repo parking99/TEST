@@ -10,6 +10,37 @@ struct SyncHistoryRecord: Codable, Identifiable {
     let latitude: Double
     let longitude: Double
     let isSos: Bool
+    var bodyTemp: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case id, timestamp, heartRate, spo2, bloodPressure, battery, latitude, longitude, isSos, bodyTemp
+    }
+
+    init(timestamp: Date, heartRate: Int, spo2: Int, bloodPressure: String, battery: Int, latitude: Double, longitude: Double, isSos: Bool, bodyTemp: Double? = nil) {
+        self.timestamp = timestamp
+        self.heartRate = heartRate
+        self.spo2 = spo2
+        self.bloodPressure = bloodPressure
+        self.battery = battery
+        self.latitude = latitude
+        self.longitude = longitude
+        self.isSos = isSos
+        self.bodyTemp = bodyTemp
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        timestamp = try container.decode(Date.self, forKey: .timestamp)
+        heartRate = try container.decode(Int.self, forKey: .heartRate)
+        spo2 = try container.decode(Int.self, forKey: .spo2)
+        bloodPressure = try container.decode(String.self, forKey: .bloodPressure)
+        battery = try container.decode(Int.self, forKey: .battery)
+        latitude = try container.decode(Double.self, forKey: .latitude)
+        longitude = try container.decode(Double.self, forKey: .longitude)
+        isSos = try container.decode(Bool.self, forKey: .isSos)
+        bodyTemp = try container.decodeIfPresent(Double.self, forKey: .bodyTemp)
+    }
 }
 class GoogleSheetSyncManager: ObservableObject {
     static let shared = GoogleSheetSyncManager()
@@ -200,7 +231,7 @@ class GoogleSheetSyncManager: ObservableObject {
 
         // حفظ محلي فوري قبل محاولة الإرسال للشبكة لضمان عدم ضياع البيانات
         let recordDate = Date()
-        let record = SyncHistoryRecord(timestamp: recordDate, heartRate: heartRate, spo2: spo2, bloodPressure: bloodPressure, battery: battery, latitude: latitude, longitude: longitude, isSos: isSos)
+        let record = SyncHistoryRecord(timestamp: recordDate, heartRate: heartRate, spo2: spo2, bloodPressure: bloodPressure, battery: battery, latitude: latitude, longitude: longitude, isSos: isSos, bodyTemp: bodyTemp)
         
         DispatchQueue.main.async {
             self.history.insert(record, at: 0)

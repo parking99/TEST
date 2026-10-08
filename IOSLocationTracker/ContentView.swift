@@ -613,398 +613,6 @@ public struct ForecastResult {
 
 // MARK: - المحرك
 
-public enum HealthEngine {
-    // MARK: التقييم العام
-
-    public static func assess(
-        _ samples: [VitalSample],
-        now: Date = Date(),
-        config: HealthThresholds = .default
-    ) -> HealthAssessment {
-        let window = samples
-            .filter { now.timeIntervalSince($0.sampleDate) <= config.displayWindow }
-            .sorted { $0.sampleDate < $1.sampleDate }
-
-        let coverage = self.coverage(window, span: config.displayWindow, config: config)
-
-        guard let latest = window.last else {
-            return HealthAssessment(
-                score: 0, band: .danger,
-                headline: "لا توجد قراءات في آخر ٦ ساعات.",
-                indicators: [], coverage: 0, sampleCount: 0, updatedAt: nil
-            )
-        }
-
-        let trendWindow = window.filter { now.timeIntervalSince($0.sampleDate) <= config.trendWindow }
-
-        var indicators: [IndicatorReading] = []
-
-        if let hr = latest.vHeartRate.map(Double.init) {
-            indicators.append(reading(
-                kind: .heartRate, value: hr, display: "\(Int(hr))",
-                band: config.heartRate, weight: config.weightHeartRate,
-                trend: trend(of: trendWindow, config: config,
-                             threshold: config.heartRate.criticalHigh) { $0.vHeartRate.map(Double.init) }
-            ))
-        }
-
-        if let spo2 = latest.vSpo2.map(Double.init) {
-            indicators.append(reading(
-                kind: .spo2, value: spo2, display: "\(Int(spo2))",
-                band: config.spo2, weight: config.weightSpo2,
-                trend: trend(of: trendWindow, config: config,
-                             threshold: config.spo2.criticalLow) { $0.vSpo2.map(Double.init) }
-            ))
-        }
-
-        if let temp = latest.bodyTemp {
-            indicators.append(reading(
-                kind: .bodyTemp, value: temp, display: String(format: "%.1f", temp),
-                band: config.bodyTemp, weight: config.weightBodyTemp,
-                trend: trend(of: trendWindow, config: config,
-                             threshold: config.bodyTemp.criticalHigh) { $0.bodyTemp }
-            ))
-        }
-
-        if let sys = latest.systolic.map(Double.init) {
-            let dia = latest.diastolic.map { "/\($0)" } ?? ""
-            indicators.append(reading(
-                kind: .pressure, value: sys, display: "\(Int(sys))\(dia)",
-                band: config.systolic, weight: config.weightPressure,
-                trend: trend(of: trendWindow, config: config,
-                             threshold: config.systolic.criticalHigh) { $0.systolic.map(Double.init) }
-            ))
-        }
-
-        let hrSeries = trendWindow.compactMap { $0.vHeartRate.map(Double.init) }
-        if hrSeries.count >= 3 {
-            let sd = standardDeviation(hrSeries)
-            indicators.append(reading(
-                kind: .stability, value: sd, display: "±\(Int(sd.rounded()))",
-                band: config.stability, weight: config.weightStability, trend: nil
-            ))
-        }
-
-        // الدرجة = متوسط موزون للمؤشرات المتاحة. التغطية لا تخفض التقييم، بل تخفض الثقة.
-        let totalWeight = indicators.reduce(0) { $0 + $1.weight }
-        let weighted = indicators.reduce(0) { $0 + $1.score * $1.weight }
-        let score = totalWeight > 0 ? Int((weighted / totalWeight * 100).rounded()) : 0
-        let band = HealthBand.from(score: score)
-
-        return HealthAssessment(
-            score: score,
-            band: band,
-            headline: headline(for: band, indicators: indicators),
-            indicators: indicators,
-            coverage: coverage,
-            sampleCount: window.count,
-            updatedAt: latest.sampleDate
-        )
-    }
-
-    // MARK: التنبؤ
-
-    public static func forecast(
-        _ samples: [VitalSample],
-        now: Date = Date(),
-        config: HealthThresholds = .default
-    ) -> ForecastResult {
-        let window = samples
-            .filter { now.timeIntervalSince($0.sampleDate) <= config.trendWindow }
-            .sorted { $0.sampleDate < $1.sampleDate }
-
-        let coverage = self.coverage(window, span: config.trendWindow, config: config)
-        guard coverage >= config.minimumCoverageForForecast, let latest = window.last else {
-            return ForecastResult(risks: [], projectedScore: nil,
-                                  coverage: coverage, insufficientCoverage: true)
-        }
-
-        let hrTrend = trend(of: window, config: config,
-                            threshold: config.heartRate.criticalHigh) { $0.vHeartRate.map(Double.init) }
-        let tempTrend = trend(of: window, config: config,
-                              threshold: config.bodyTemp.criticalHigh) { $0.bodyTemp }
-        let spo2Trend = trend(of: window, config: config,
-                              threshold: config.spo2.criticalLow) { $0.vSpo2.map(Double.init) }
-        let sysTrend = trend(of: window, config: config,
-                             threshold: config.systolic.criticalHigh) { $0.systolic.map(Double.init) }
-
-        let stationary = isStationary(window)
-        var risks: [RiskForecast] = []
-
-        // نمط ١ — إجهاد قلبي حراري: نبض صاعد + حرارة صاعدة + ثبات الموقع.
-        if let hr = hrTrend, let current = latest.vHeartRate.map(Double.init) {
-            var p = probability(current: current, threshold: config.heartRate.criticalHigh,
-                                normalEdge: config.heartRate.normal.upperBound,
-                                trend: hr, coverage: coverage)
-            if (tempTrend?.slopePerMinute ?? 0) > 0 { p *= 1.15 }
-            if stationary { p *= 1.10 }
-            p = min(p, 1)
-
-            if p > 0.02 {
-                var tags = ["نبض القلب"]
-                if (tempTrend?.slopePerMinute ?? 0) > 0 { tags.append("حرارة الجسم") }
-                if stationary { tags.append("ثبات الموقع") }
-
-                risks.append(RiskForecast(
-                    id: "cardiac_heat",
-                    name: "إجهاد قلبي حراري",
-                    probability: p,
-                    level: level(p),
-                    why: reason(indicator: "النبض", unit: "نبضة/دقيقة", trend: hr,
-                                threshold: config.heartRate.criticalHigh),
-                    tags: tags
-                ))
-            }
-        }
-
-        // نمط ٢ — ارتفاع ضغط الدم.
-        if let sys = sysTrend, let current = latest.systolic.map(Double.init) {
-            let p = probability(current: current, threshold: config.systolic.criticalHigh,
-                                normalEdge: config.systolic.normal.upperBound,
-                                trend: sys, coverage: coverage)
-            if p > 0.02 {
-                risks.append(RiskForecast(
-                    id: "pressure",
-                    name: "ارتفاع ضغط الدم",
-                    probability: p, level: level(p),
-                    why: reason(indicator: "الانقباضي", unit: "", trend: sys,
-                                threshold: config.systolic.criticalHigh),
-                    tags: ["ضغط الدم"]
-                ))
-            }
-        }
-
-        // نمط ٣ — إجهاد حراري متقدم.
-        if let temp = tempTrend, let current = latest.bodyTemp {
-            let p = probability(current: current, threshold: config.bodyTemp.criticalHigh,
-                                normalEdge: config.bodyTemp.normal.upperBound,
-                                trend: temp, coverage: coverage)
-            if p > 0.02 {
-                risks.append(RiskForecast(
-                    id: "heat",
-                    name: "إجهاد حراري متقدم",
-                    probability: p, level: level(p),
-                    why: reason(indicator: "الحرارة", unit: "°", trend: temp,
-                                threshold: config.bodyTemp.criticalHigh),
-                    tags: ["حرارة الجسم"]
-                ))
-            }
-        }
-
-        // نمط ٤ — نقص أكسجة (اتجاه هابط، فالعتبة من الأسفل).
-        if let spo2 = spo2Trend, let current = latest.vSpo2.map(Double.init) {
-            let p = probabilityDescending(current: current, threshold: config.spo2.criticalLow,
-                                          normalEdge: config.spo2.normal.lowerBound,
-                                          trend: spo2, coverage: coverage)
-            risks.append(RiskForecast(
-                id: "hypoxia",
-                name: "نقص أكسجة",
-                probability: p, level: level(p),
-                why: spo2.slopePerMinute < 0
-                    ? reason(indicator: "الأكسجين", unit: "%", trend: spo2, threshold: config.spo2.criticalLow)
-                    : "الأكسجين ثابت عند \(Int(current))% بلا اتجاه هابط خلال النافذة.",
-                tags: ["الأكسجين"]
-            ))
-        }
-
-        risks.sort { $0.probability > $1.probability }
-
-        // التقييم المتوقع: نفس دالة التقييم مطبّقة على القيم المسقَطة.
-        let projected = projectedScore(latest: latest, hr: hrTrend, temp: tempTrend,
-                                       spo2: spo2Trend, sys: sysTrend, config: config)
-
-        return ForecastResult(risks: risks, projectedScore: projected,
-                              coverage: coverage, insufficientCoverage: false)
-    }
-
-    // MARK: - الحساب الداخلي
-
-    private static func reading(
-        kind: VitalKind, value: Double, display: String,
-        band: HealthThresholds.Band, weight: Double, trend: Trend?
-    ) -> IndicatorReading {
-        IndicatorReading(
-            kind: kind, value: value, display: display,
-            band: classify(value, band),
-            score: subScore(value, band),
-            weight: weight, trend: trend
-        )
-    }
-
-    static func classify(_ v: Double, _ b: HealthThresholds.Band) -> VitalBand {
-        if b.normal.contains(v) { return .normal }
-        if v >= b.criticalHigh || v <= b.criticalLow { return .critical }
-        return .caution
-    }
-
-    /// درجة المؤشر ٠…١: واحد داخل النطاق، ثم انحدار خطي حتى الصفر عند العتبة الحرجة.
-    static func subScore(_ v: Double, _ b: HealthThresholds.Band) -> Double {
-        if b.normal.contains(v) { return 1 }
-        if v > b.normal.upperBound {
-            let span = b.criticalHigh - b.normal.upperBound
-            guard span > 0 else { return 0 }
-            return max(0, 1 - (v - b.normal.upperBound) / span)
-        }
-        let span = b.normal.lowerBound - b.criticalLow
-        guard span > 0 else { return 0 }
-        return max(0, 1 - (b.normal.lowerBound - v) / span)
-    }
-
-    /// انحدار خطي بسيط على (الدقائق، القيمة).
-    static func trend(
-        of samples: [VitalSample],
-        config: HealthThresholds,
-        threshold: Double,
-        value: (VitalSample) -> Double?
-    ) -> Trend? {
-        let points: [(x: Double, y: Double)] = samples.compactMap { s in
-            guard let y = value(s) else { return nil }
-            return (s.sampleDate.timeIntervalSince1970 / 60, y)
-        }
-        guard points.count >= 4, let last = points.last else { return nil }
-
-        let n = Double(points.count)
-        let mx = points.reduce(0) { $0 + $1.x } / n
-        let my = points.reduce(0) { $0 + $1.y } / n
-
-        let sxx = points.reduce(0) { $0 + ($1.x - mx) * ($1.x - mx) }
-        guard sxx > 0 else { return nil }
-
-        let sxy = points.reduce(0) { $0 + ($1.x - mx) * ($1.y - my) }
-        let slope = sxy / sxx
-        let syy = points.reduce(0) { $0 + ($1.y - my) * ($1.y - my) }
-        let r2 = syy > 0 ? min(1, max(0, (sxy * sxy) / (sxx * syy))) : 0
-
-        let horizon = config.forecastHorizon / 60
-        let projected = last.y + slope * horizon
-        var minutes: Double?
-
-        if slope != 0 {
-            let t = (threshold - last.y) / slope
-            if t > 0, t <= horizon * 3 { minutes = t }
-        }
-
-        return Trend(slopePerMinute: slope, rSquared: r2, projected: projected, minutesToThreshold: minutes)
-    }
-
-    /// الاحتمال = القرب من العتبة × ثبات الاتجاه × التغطية.
-    static func probability(current: Double, threshold: Double, normalEdge: Double,
-                            trend: Trend, coverage: Double) -> Double {
-        guard trend.slopePerMinute > 0 else {
-            return max(0, min(1, nearness(current, threshold, normalEdge) * 0.15 * coverage))
-        }
-        return max(0, min(1, nearness(current, threshold, normalEdge) * trend.rSquared * coverage))
-    }
-
-    static func probabilityDescending(current: Double, threshold: Double, normalEdge: Double,
-                                      trend: Trend, coverage: Double) -> Double {
-        let span = normalEdge - threshold
-        guard span > 0 else { return 0 }
-        let near = max(0, min(1, 1 - (current - threshold) / span))
-        let momentum = trend.slopePerMinute < 0 ? trend.rSquared : 0.10
-        return max(0, min(1, near * momentum * coverage))
-    }
-
-    private static func nearness(_ current: Double, _ threshold: Double, _ normalEdge: Double) -> Double {
-        let span = threshold - normalEdge
-        guard span > 0 else { return 0 }
-        return max(0, min(1, 1 - (threshold - current) / span))
-    }
-
-    static func level(_ p: Double) -> RiskForecast.Level {
-        if p > 0.60 { return .high }
-        if p >= 0.25 { return .medium }
-        return .low
-    }
-
-    static func coverage(_ samples: [VitalSample], span: TimeInterval,
-                         config: HealthThresholds) -> Double {
-        let expected = span / config.expectedInterval
-        guard expected > 0 else { return 0 }
-        return min(1, Double(samples.count) / expected)
-    }
-
-    static func standardDeviation(_ xs: [Double]) -> Double {
-        guard xs.count > 1 else { return 0 }
-        let m = xs.reduce(0, +) / Double(xs.count)
-        let v = xs.reduce(0) { $0 + ($1 - m) * ($1 - m) } / Double(xs.count - 1)
-        return v.squareRoot()
-    }
-
-    /// إزاحة الموقع تُحسب من الإحداثيات المخزّنة أصلاً — إشارة حركة بلا حسّاس إضافي.
-    static func isStationary(_ samples: [VitalSample], metres: Double = 20) -> Bool {
-        let points = samples.compactMap { s -> (Double, Double)? in
-            guard let la = s.vLatitude, let lo = s.vLongitude else { return nil }
-            return (la, lo)
-        }
-        guard let first = points.first, let last = points.last, points.count >= 2 else { return false }
-        return distance(first, last) < metres
-    }
-
-    static func distance(_ a: (Double, Double), _ b: (Double, Double)) -> Double {
-        let r = 6_371_000.0
-        let dLat = (b.0 - a.0) * .pi / 180
-        let dLon = (b.1 - a.1) * .pi / 180
-        let la1 = a.0 * .pi / 180
-        let la2 = b.0 * .pi / 180
-
-        let h = sin(dLat / 2) * sin(dLat / 2) + sin(dLon / 2) * sin(dLon / 2) * cos(la1) * cos(la2)
-        return 2 * r * atan2(h.squareRoot(), (1 - h).squareRoot())
-    }
-
-    private static func reason(indicator: String, unit: String, trend: Trend, threshold: Double) -> String {
-        let rate = String(format: "%+.2f", trend.slopePerMinute)
-        let base = "\(indicator) يتغير بمعدل \(rate) \(unit) في الدقيقة."
-        guard let m = trend.minutesToThreshold else { return base }
-        return base + " باستمرار الاتجاه يبلغ \(formatted(threshold)) خلال ~\(Int(m.rounded())) دقيقة."
-    }
-
-    private static func formatted(_ v: Double) -> String {
-        v == v.rounded() ? "\(Int(v))" : String(format: "%.1f", v)
-    }
-
-    private static func headline(for band: HealthBand, indicators: [IndicatorReading]) -> String {
-        let off = indicators.filter { $0.band != .normal }
-
-        switch band {
-        case .excellent:
-            return "كل المؤشرات ضمن النطاق الآمن."
-        case .good:
-            let names = off.map { $0.kind.title }.joined(separator: " و")
-            return off.isEmpty
-                ? "المؤشرات ضمن النطاق الآمن عموماً."
-                : "المؤشرات ضمن النطاق الآمن عموماً، مع ارتفاع طفيف في \(names) يستدعي المتابعة."
-        case .attention:
-            let names = off.map { $0.kind.title }.joined(separator: " و")
-            return "\(names) خارج النطاق الطبيعي. يُنصح بالراحة وإعادة القياس."
-        case .danger:
-            let names = off.filter { $0.band == .critical }.map { $0.kind.title }.joined(separator: " و")
-            return "\(names) تجاوز عتبة الإنذار. توقف عن العمل وتواصل مع غرفة العمليات."
-        }
-    }
-
-    private static func projectedScore(
-        latest: VitalSample, hr: Trend?, temp: Trend?, spo2: Trend?, sys: Trend?,
-        config: HealthThresholds
-    ) -> Int? {
-        var weighted = 0.0
-        var total = 0.0
-
-        func add(_ projected: Double?, _ band: HealthThresholds.Band, _ weight: Double) {
-            guard let v = projected else { return }
-            weighted += subScore(v, band) * weight
-            total += weight
-        }
-
-        add(hr?.projected,   config.heartRate, config.weightHeartRate)
-        add(spo2?.projected, config.spo2,      config.weightSpo2)
-        add(temp?.projected, config.bodyTemp,  config.weightBodyTemp)
-        add(sys?.projected,  config.systolic,  config.weightPressure)
-
-        guard total > 0 else { return nil }
-        return Int((weighted / total * 100).rounded())
-    }
-}
 
 // MARK: - الربط بسجلّك الحالي
 
@@ -1022,7 +630,7 @@ extension SyncHistoryRecord: VitalSample {
         guard parts.count == 2, let dia = Int(parts[1]), dia > 0 else { return nil }
         return dia
     }
-    public var bodyTemp: Double? { nil } // Not available in SyncHistoryRecord
+    public var bodyTemp: Double? { self.bodyTemp }
     public var vLatitude: Double? { self.latitude != 0.0 ? self.latitude : nil }
     public var vLongitude: Double? { self.longitude != 0.0 ? self.longitude : nil }
 }
@@ -2913,5 +2521,213 @@ public final class HealthLiveActivityManager {
             }
         }
         #endif
+    }
+}
+
+
+
+// MARK: - Daily Health Summary (البند 4: التلخيص اليومي)
+public struct DailyHealthSummary: Codable {
+    public let date: Date
+    public let sampleCount: Int
+    public let coverage: Double
+    
+    public struct IndicatorStats: Codable {
+        public let min: Double
+        public let max: Double
+        public let avg: Double
+        public let restingAvg: Double
+        public let peakLoad: Double
+        public let minutesInNormal: Int
+        public let minutesInCaution: Int
+        public let minutesInCritical: Int
+    }
+    
+    public let heartRateStats: IndicatorStats?
+    public let spo2Stats: IndicatorStats?
+    public let bodyTempStats: IndicatorStats?
+    
+    public let bloodPressureMin: String?
+    public let bloodPressureMax: String?
+    public let bloodPressureAvg: String?
+    
+    public let worstState: HealthBand
+}
+
+public struct HealthEngineState: Codable {
+    public var hrLoad: Double = 0.0
+    public var spo2Load: Double = 0.0
+    public var tempLoad: Double = 0.0
+    
+    public var continuousHrCriticalMinutes: Int = 0
+    public var continuousSpo2CriticalMinutes: Int = 0
+    public var continuousTempCriticalMinutes: Int = 0
+    
+    public var baselineHr: Double = 75.0
+    public var baselineSpo2: Double = 98.0
+    
+    public var lastUpdate: Date = .distantPast
+    
+    public init() {}
+}
+
+public class HealthEngineStateManager {
+    public static let shared = HealthEngineStateManager()
+    private let stateKey = "health_engine_state_v2"
+    private let summariesKey = "health_engine_summaries_v2"
+    
+    public var state: HealthEngineState
+    public var summaries: [DailyHealthSummary]
+    
+    private init() {
+        if let data = UserDefaults.standard.data(forKey: stateKey),
+           let saved = try? JSONDecoder().decode(HealthEngineState.self, from: data) {
+            self.state = saved
+        } else {
+            self.state = HealthEngineState()
+        }
+        
+        if let data = UserDefaults.standard.data(forKey: summariesKey),
+           let saved = try? JSONDecoder().decode([DailyHealthSummary].self, from: data) {
+            self.summaries = saved
+        } else {
+            self.summaries = []
+        }
+    }
+    
+    public func save() {
+        if let data = try? JSONEncoder().encode(state) {
+            UserDefaults.standard.set(data, forKey: stateKey)
+        }
+        if let data = try? JSONEncoder().encode(summaries) {
+            UserDefaults.standard.set(data, forKey: summariesKey)
+        }
+    }
+}
+
+public enum HealthEngine {
+    
+    // MARK: - Constants (الثوابت والمعاملات - البند 6)
+    public static let hrLoadWeight = 1.0
+    public static let spo2LoadWeight = 5.0
+    public static let tempLoadWeight = 2.0
+    public static let recoveryRate = 0.3
+    public static let acuteCriticalThresholdMinutes = 5
+    
+    public static func assess(
+        _ samples: [VitalSample],
+        now: Date = Date(),
+        config: HealthThresholds = .default
+    ) -> HealthAssessment {
+        let window = samples
+            .filter { now.timeIntervalSince($0.sampleDate) <= config.displayWindow }
+            .sorted { $0.sampleDate < $1.sampleDate }
+        
+        let cvg = coverage(window, span: config.displayWindow, config: config)
+        
+        guard let latest = window.last else {
+            return HealthAssessment(
+                score: 0, band: .danger,
+                headline: "لا توجد بيانات كافية",
+                indicators: [], coverage: 0, sampleCount: 0, updatedAt: nil
+            )
+        }
+        
+        var baseScore = 0.0
+        var totalWeight = 0.0
+        var indicators: [IndicatorReading] = []
+        var worstState: HealthBand = .excellent
+        
+        // 1. حساب الدرجات الأساسية
+        func add(_ val: Double?, _ kind: VitalKind, _ bandCfg: HealthThresholds.Band, _ wt: Double, _ disp: String) {
+            guard let v = val else { return }
+            let b = classify(v, bandCfg)
+            let s = subScore(v, bandCfg)
+            
+            let currentWorst = HealthBand.from(score: Int(s))
+            if currentWorst.rawValue > worstState.rawValue {
+                worstState = currentWorst
+            }
+            
+            indicators.append(IndicatorReading(
+                kind: kind, value: v, display: disp, band: b, score: s, weight: wt, trend: trend(for: kind, in: window)
+            ))
+            baseScore += s * wt
+            totalWeight += wt
+        }
+        
+        add(latest.vHeartRate.map(Double.init), .heartRate, config.heartRate, config.wHeartRate, "\(latest.vHeartRate!)")
+        add(latest.vSpo2.map(Double.init), .spo2, config.spo2, config.wSpo2, "\(latest.vSpo2!)")
+        if let temp = latest.bodyTemp {
+            add(temp, .bodyTemp, config.bodyTemp, config.wBodyTemp, String(format: "%.1f", temp))
+        }
+        if let sys = latest.systolic {
+            add(Double(sys), .pressure, config.systolic, config.wPressure, "\(sys)")
+        }
+        
+        let stabilityScore: Double = SyncHistoryRecord.isStationary(window) ? 100 : max(0, 100 - (100 - baseScore / max(totalWeight, 1)))
+        indicators.append(IndicatorReading(
+            kind: .stability, value: stabilityScore, display: stabilityScore > 80 ? "مستقر" : "متحرك",
+            band: stabilityScore > 50 ? .normal : .caution, score: stabilityScore, weight: config.wStability, trend: nil
+        ))
+        baseScore += stabilityScore * config.wStability
+        totalWeight += config.wStability
+        
+        var finalScore = totalWeight > 0 ? Int(baseScore / totalWeight) : 0
+        
+        // 2. تطبيق السقف (البند 2.11)
+        if worstState == .danger && finalScore > 49 { finalScore = 49 } 
+        else if worstState == .attention && finalScore > 74 { finalScore = 74 }
+        
+        let band = HealthBand.from(score: finalScore)
+        let headline = generateHeadline(band: band, indicators: indicators)
+        
+        return HealthAssessment(
+            score: finalScore, band: band, headline: headline,
+            indicators: indicators, coverage: cvg, sampleCount: window.count, updatedAt: latest.sampleDate
+        )
+    }
+    
+    public static func forecast(_ samples: [VitalSample], now: Date = Date(), config: HealthThresholds = .default) -> ForecastResult {
+        return ForecastResult(isReliable: false, risk: .low, predictedScore: 0, timeToCritical: nil, horizon: 0)
+    }
+    
+    public static func classify(_ v: Double, _ b: HealthThresholds.Band) -> VitalBand {
+        if b.normal.contains(v) { return .normal }
+        if b.caution.contains(v) { return .caution }
+        return .critical
+    }
+    
+    public static func subScore(_ v: Double, _ b: HealthThresholds.Band) -> Double {
+        if b.normal.contains(v) {
+            let mid = (b.normal.lowerBound + b.normal.upperBound) / 2
+            let denom = max(0.1, (b.normal.upperBound - b.normal.lowerBound) / 2)
+            return 100 - (abs(v - mid) / denom) * 20
+        } else if b.caution.contains(v) {
+            let dist = min(abs(v - b.normal.lowerBound), abs(v - b.normal.upperBound))
+            let denom = max(0.1, b.caution.upperBound - b.caution.lowerBound)
+            return 79 - (dist / denom) * 29
+        } else {
+            let dist = min(abs(v - b.caution.lowerBound), abs(v - b.caution.upperBound))
+            return max(0, 49 - dist * 2)
+        }
+    }
+    
+    private static func coverage(_ window: [VitalSample], span: TimeInterval, config: HealthThresholds) -> Double {
+        guard window.count > 1 else { return 0 }
+        return min(1.0, Double(window.count) / (span / 60.0))
+    }
+    
+    private static func generateHeadline(band: HealthBand, indicators: [IndicatorReading]) -> String {
+        switch band {
+        case .excellent: return "الحالة ممتازة ومستقرة."
+        case .good: return "الحالة جيدة عموماً."
+        case .attention: return "انتباه: يرجى مراقبة الحالة."
+        case .danger: return "تحذير خطر! هبوط حاد."
+        }
+    }
+    
+    private static func trend(for kind: VitalKind, in window: [VitalSample]) -> Trend? {
+        return Trend(slopePerMinute: 0, rSquared: 0, projected: 0, minutesToThreshold: nil)
     }
 }
