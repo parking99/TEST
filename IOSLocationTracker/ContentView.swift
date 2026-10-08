@@ -2578,22 +2578,22 @@ public enum HealthEngine {
             totalWeight += wt
         }
         
-        add(latest.vHeartRate.map(Double.init), .heartRate, config.heartRate, config.wHeartRate, "\(latest.vHeartRate!)")
-        add(latest.vSpo2.map(Double.init), .spo2, config.spo2, config.wSpo2, "\(latest.vSpo2!)")
+        add(latest.vHeartRate.map(Double.init), .heartRate, config.heartRate, config.weightHeartRate, "\(latest.vHeartRate!)")
+        add(latest.vSpo2.map(Double.init), .spo2, config.spo2, config.weightSpo2, "\(latest.vSpo2!)")
         if let temp = latest.bodyTemp {
-            add(temp, .bodyTemp, config.bodyTemp, config.wBodyTemp, String(format: "%.1f", temp))
+            add(temp, .bodyTemp, config.bodyTemp, config.weightBodyTemp, String(format: "%.1f", temp))
         }
         if let sys = latest.systolic {
-            add(Double(sys), .pressure, config.systolic, config.wPressure, "\(sys)")
+            add(Double(sys), .pressure, config.systolic, config.weightPressure, "\(sys)")
         }
         
-        let stabilityScore: Double = SyncHistoryRecord.isStationary(window) ? 100 : max(0, 100 - (100 - baseScore / max(totalWeight, 1)))
+        let stabilityScore: Double = HealthEngine.isStationary(window) ? 100 : max(0, 100 - (100 - baseScore / max(totalWeight, 1)))
         indicators.append(IndicatorReading(
             kind: .stability, value: stabilityScore, display: stabilityScore > 80 ? "مستقر" : "متحرك",
-            band: stabilityScore > 50 ? .normal : .caution, score: stabilityScore, weight: config.wStability, trend: nil
+            band: stabilityScore > 50 ? .normal : .caution, score: stabilityScore, weight: config.weightStability, trend: nil
         ))
-        baseScore += stabilityScore * config.wStability
-        totalWeight += config.wStability
+        baseScore += stabilityScore * config.weightStability
+        totalWeight += config.weightStability
         
         var finalScore = totalWeight > 0 ? Int(baseScore / totalWeight) : 0
         
@@ -2611,30 +2611,47 @@ public enum HealthEngine {
     }
     
     public static func forecast(_ samples: [VitalSample], now: Date = Date(), config: HealthThresholds = .default) -> ForecastResult {
-        return ForecastResult(isReliable: false, risk: .low, predictedScore: 0, timeToCritical: nil, horizon: 0)
+        return ForecastResult(risks: [], projectedScore: nil, coverage: 0, insufficientCoverage: true)
     }
     
     public static func classify(_ v: Double, _ b: HealthThresholds.Band) -> VitalBand {
         if b.normal.contains(v) { return .normal }
-        if b.caution.contains(v) { return .caution }
-        return .critical
+        if v >= b.criticalHigh || v <= b.criticalLow { return .critical }
+        return .caution
     }
     
     public static func subScore(_ v: Double, _ b: HealthThresholds.Band) -> Double {
-        if b.normal.contains(v) {
-            let mid = (b.normal.lowerBound + b.normal.upperBound) / 2
-            let denom = max(0.1, (b.normal.upperBound - b.normal.lowerBound) / 2)
-            return 100 - (abs(v - mid) / denom) * 20
-        } else if b.caution.contains(v) {
-            let dist = min(abs(v - b.normal.lowerBound), abs(v - b.normal.upperBound))
-            let denom = max(0.1, b.caution.upperBound - b.caution.lowerBound)
-            return 79 - (dist / denom) * 29
-        } else {
-            let dist = min(abs(v - b.caution.lowerBound), abs(v - b.caution.upperBound))
-            return max(0, 49 - dist * 2)
+        if b.normal.contains(v) { return 100 }
+        if v > b.normal.upperBound {
+            let span = b.criticalHigh - b.normal.upperBound
+            guard span > 0 else { return 0 }
+            return max(0, 100 - (v - b.normal.upperBound) / span * 100)
         }
+        let span = b.normal.lowerBound - b.criticalLow
+        guard span > 0 else { return 0 }
+        return max(0, 100 - (b.normal.lowerBound - v) / span * 100)
     }
     
+    
+    public static func isStationary(_ samples: [VitalSample], metres: Double = 20) -> Bool {
+        let points = samples.compactMap { s -> (Double, Double)? in
+            guard let la = s.vLatitude, let lo = s.vLongitude else { return nil }
+            return (la, lo)
+        }
+        guard let first = points.first, let last = points.last, points.count >= 2 else { return false }
+        return distance(first, last) < metres
+    }
+    
+    private static func distance(_ a: (Double, Double), _ b: (Double, Double)) -> Double {
+        let r = 6_371_000.0
+        let lat1 = a.0 * .pi / 180
+        let lat2 = b.0 * .pi / 180
+        let dLat = (b.0 - a.0) * .pi / 180
+        let dLon = (b.1 - a.1) * .pi / 180
+        let aVal = sin(dLat/2) * sin(dLat/2) + cos(lat1) * cos(lat2) * sin(dLon/2) * sin(dLon/2)
+        return r * 2 * atan2(sqrt(aVal), sqrt(1-aVal))
+    }
+
     private static func coverage(_ window: [VitalSample], span: TimeInterval, config: HealthThresholds) -> Double {
         guard window.count > 1 else { return 0 }
         return min(1.0, Double(window.count) / (span / 60.0))
