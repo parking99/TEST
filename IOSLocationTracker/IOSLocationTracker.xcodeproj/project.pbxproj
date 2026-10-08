@@ -8,7 +8,6 @@
 
 /* Begin PBXBuildFile section */
 		A021 /* HealthEngineState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A121; };
-		A022 /* HealthEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A122; };
 		A020 /* medical_alert.wav in Resources */ = {isa = PBXBuildFile; fileRef = A120; };
 		A001 /* IOSLocationTrackerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A101; };
 		A002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A102; };
@@ -262,7 +261,6 @@
 				A001 /* IOSLocationTrackerApp.swift in Sources */,
 				A002 /* ContentView.swift in Sources */,
 				A021 /* HealthEngineState.swift in Sources */,
-				A022 /* HealthEngineTests.swift in Sources */,
 				A003 /* LocationManager.swift in Sources */,
 				A004 /* IdoSmartManager.swift in Sources */,
 				A005 /* BloodPressureAlgorithm.swift in Sources */,
