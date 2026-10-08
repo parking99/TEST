@@ -1091,7 +1091,7 @@ public final class HealthAlertCenter {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
-        content.sound = .default
+        content.sound = UNNotificationSound(named: UNNotificationSoundName(rawValue: "medical_alert.wav"))
         content.interruptionLevel = .timeSensitive
 
         let request = UNNotificationRequest(
