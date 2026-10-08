@@ -198,6 +198,33 @@ class GoogleSheetSyncManager: ObservableObject {
             return
         }
 
+        // حفظ محلي فوري قبل محاولة الإرسال للشبكة لضمان عدم ضياع البيانات
+        let recordDate = Date()
+        let record = SyncHistoryRecord(timestamp: recordDate, heartRate: heartRate, spo2: spo2, bloodPressure: bloodPressure, battery: battery, latitude: latitude, longitude: longitude, isSos: isSos)
+        
+        DispatchQueue.main.async {
+            self.history.insert(record, at: 0)
+            let limitDate = Date().addingTimeInterval(-31 * 24 * 3600)
+            self.history.removeAll { $0.timestamp < limitDate }
+            if let historyData = try? JSONEncoder().encode(self.history) {
+                UserDefaults.standard.set(historyData, forKey: "sync_history_logs")
+            }
+            let assessment = HealthEngine.assess(self.history)
+            HealthAlertCenter.shared.evaluate(assessment)
+            let hr = heartRate > 0 ? heartRate : 0
+            let o2 = spo2 > 0 ? spo2 : 0
+            if hr > 0 || o2 > 0 {
+                if #available(iOS 16.1, *) {
+                    HealthLiveActivityManager.shared.update(
+                        heartRate: hr,
+                        spo2: o2,
+                        isCritical: assessment.score < 50,
+                        message: assessment.headline
+                    )
+                }
+            }
+        }
+
         let task = urlSession.dataTask(with: request) { [weak self] data, response, error in
             DispatchQueue.main.async {
                 self?.isSyncing = false
@@ -209,37 +236,10 @@ class GoogleSheetSyncManager: ObservableObject {
                 }
 
                 let respString = data != nil ? String(data: data!, encoding: .utf8) ?? "OK" : "OK"
-                let successDate = Date()
-                self?.lastSyncTime = successDate
-                self?.lastSyncStatus = "ØªÙ…Øª Ø§Ù„Ù…Ø²Ø§Ù…Ù†Ø© Ø¨Ù†Ø¬Ø§Ø­ âœ…"
-                UserDefaults.standard.set(successDate, forKey: "last_google_sheet_sync_time")
-                print("[GoogleSheetSyncManager] Measurements sent successfully to Google Sheets at \(successDate)")
-                let record = SyncHistoryRecord(timestamp: successDate, heartRate: heartRate, spo2: spo2, bloodPressure: bloodPressure, battery: battery, latitude: latitude, longitude: longitude, isSos: isSos)
-                self?.history.insert(record, at: 0)
-                // الاحتفاظ بالبيانات لمدة ٣١ يوماً بدلاً من ٥٠ قراءة فقط
-                let limitDate = Date().addingTimeInterval(-31 * 24 * 3600)
-                self?.history.removeAll { $0.timestamp < limitDate }
-                if let historyData = try? JSONEncoder().encode(self?.history) {
-                    UserDefaults.standard.set(historyData, forKey: "sync_history_logs")
-                }
-                if let currentHistory = self?.history {
-                    DispatchQueue.main.async {
-                        let assessment = HealthEngine.assess(currentHistory)
-                        HealthAlertCenter.shared.evaluate(assessment)
-                        let hr = heartRate > 0 ? heartRate : 0
-                        let o2 = spo2 > 0 ? spo2 : 0
-                        if hr > 0 || o2 > 0 {
-                            if #available(iOS 16.1, *) {
-                                HealthLiveActivityManager.shared.update(
-                                    heartRate: hr,
-                                    spo2: o2,
-                                    isCritical: assessment.score < 50,
-                                    message: assessment.headline
-                                )
-                            }
-                        }
-                    }
-                }
+                self?.lastSyncTime = recordDate
+                self?.lastSyncStatus = "تمت المزامنة بنجاح ✅"
+                UserDefaults.standard.set(recordDate, forKey: "last_google_sheet_sync_time")
+                print("[GoogleSheetSyncManager] Measurements sent successfully to Google Sheets at \(recordDate)")
                 completion?(.success(respString))
             }
         }

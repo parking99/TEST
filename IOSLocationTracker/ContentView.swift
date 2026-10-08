@@ -475,7 +475,7 @@ public struct HealthThresholds {
     /// تحت هذه التغطية لا يُعرض التنبؤ إطلاقاً.
     public var minimumCoverageForForecast: Double = 0.40
     /// مدة التجاوز المتواصل قبل اعتبار الحالة إنذاراً.
-    public var sustainedBreach: TimeInterval = 5 * 60
+    public var sustainedBreach: TimeInterval = 0
 
     public static let `default` = HealthThresholds()
     public init() {}
@@ -1044,7 +1044,7 @@ public final class HealthAlertCenter {
     /// آخر إشعار أُرسل لكل مؤشر — لمنع التكرار.
     private var lastNotified: [VitalKind: Date] = [:]
 
-    private let cooldown: TimeInterval = 15 * 60
+    private let cooldown: TimeInterval = 60
 
     private init() {}
 
