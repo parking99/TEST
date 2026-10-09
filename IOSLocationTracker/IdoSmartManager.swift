@@ -218,12 +218,42 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
     func updateMetrics() {
         let (sys, dia) = BloodPressureAlgorithm.calculate(heartRate: currentHeartRate, steps: currentSteps)
         self.currentBloodPressure = "\(sys)/\(dia)"
-
+        
         let hr = (40...220).contains(currentHeartRate) ? currentHeartRate : 72
         let metabolicShift = min(max(Double(hr - 70) * 0.008, -0.3), 0.5)
         self.currentTemperature = ((36.6 + metabolicShift) * 10).rounded() / 10.0
+        
+        // Handle Daily Step Tracking & Reset
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        let todayStr = formatter.string(from: Date())
+        
+        var stepDict: [String: Int] = [:]
+        if let data = UserDefaults.standard.data(forKey: "daily_steps_history"),
+           let decoded = try? JSONDecoder().decode([String: Int].self, from: data) {
+            stepDict = decoded
+        }
+        
+        let lastDate = UserDefaults.standard.object(forKey: "last_steps_date") as? Date ?? Date()
+        
+        if !Calendar.current.isDateInToday(lastDate) {
+            // New day detected! Reset steps
+            self.currentSteps = 0
+            UserDefaults.standard.set(0, forKey: "last_steps")
+            UserDefaults.standard.set(Date(), forKey: "last_steps_date")
+        } else {
+            // Update today's steps in dictionary
+            let savedToday = stepDict[todayStr] ?? 0
+            if self.currentSteps > savedToday {
+                stepDict[todayStr] = self.currentSteps
+                if let encoded = try? JSONEncoder().encode(stepDict) {
+                    UserDefaults.standard.set(encoded, forKey: "daily_steps_history")
+                }
+            }
+            UserDefaults.standard.set(Date(), forKey: "last_steps_date")
+        }
     }
-
+    
     // MARK: - Device Identity Helpers
     private func normalizedId(_ s: String?) -> String {
         return (s ?? "")
@@ -834,7 +864,7 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
                     if (40...220).contains(ld.heartRate) {
                         self?.updateLiveHeartRate(ld.heartRate, source: "getLiveData")
                     }
-                    if ld.totalStep > 0 && ld.totalStep != self?.currentSteps {
+                    if ld.totalStep >= 0 && ld.totalStep != self?.currentSteps {
                         self?.currentSteps = ld.totalStep
                         UserDefaults.standard.set(ld.totalStep, forKey: "last_steps")
                         self?.updateMetrics()
