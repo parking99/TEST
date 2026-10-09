@@ -33,7 +33,7 @@ struct ContentView: View {
                     StatusScreen(ido: ido, location: location, employeeId: employeeId) {
                         tab = .devices
                     }
-                case .history:  HistoryScreen(samples: GoogleSheetSyncManager.shared.history, employeeID: employeeId)
+                case .history: NavigationView { HealthHistoryView() }
                 case .devices:  DevicesScreen(ido: ido)
                 case .sos:      SOSScreen(ido: ido, location: location, employeeId: employeeId)
                 case .identity: IdentityScreen(ido: ido, location: location, employeeId: $employeeId)
@@ -135,6 +135,9 @@ struct StatusScreen: View {
                                  iconColor: SP.Color.dangerText, isStale: !connected)
                     SPMetricCard(title: "الخطوات", value: connected ? text(ido.currentSteps) : "â€”",
                                  icon: "figure.walk", iconColor: SP.Color.ok,
+                                 isStale: !connected)
+                    SPMetricCard(title: "السعرات", value: connected ? "\(Int(Double(ido.currentSteps) * 0.045))" : "--",
+                                 unit: "سعرة", icon: "flame.fill", iconColor: .orange,
                                  isStale: !connected)
                     SPMetricCard(title: "بطارية السوار", value: connected ? text(ido.currentBattery) : "â€”",
                                  unit: "%", icon: "battery.75", iconColor: SP.Color.muted,
