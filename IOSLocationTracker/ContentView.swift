@@ -33,7 +33,7 @@ struct ContentView: View {
                     StatusScreen(ido: ido, location: location, employeeId: employeeId) {
                         tab = .devices
                     }
-                case .history: NavigationView { HealthHistoryView() }
+                case .history:  HistoryScreen(samples: GoogleSheetSyncManager.shared.history, employeeID: employeeId)
                 case .devices:  DevicesScreen(ido: ido)
                 case .sos:      SOSScreen(ido: ido, location: location, employeeId: employeeId)
                 case .identity: IdentityScreen(ido: ido, location: location, employeeId: $employeeId)
@@ -782,6 +782,7 @@ public struct HistoryScreen: View {
     public var onSelect: (VitalSample) -> Void
 
     @State private var selectedIndicator: IndicatorReading?
+    @State private var showPastHistory: Bool = false
 
     public init(samples: [VitalSample],
                 employeeID: String,
@@ -839,6 +840,11 @@ public struct HistoryScreen: View {
             .padding(.top, 12)
             .padding(.bottom, 32)
         }
+        .sheet(isPresented: $showPastHistory) {
+            NavigationView {
+                HealthHistoryView()
+            }
+        }
     }
 
     // MARK: الأجزاء
@@ -857,15 +863,27 @@ public struct HistoryScreen: View {
             }
             Spacer()
             Button {
+                showPastHistory = true
+            } label: {
+                Image(systemName: "calendar.badge.clock")
+                    .font(.system(size: 20))
+                    .foregroundColor(SP.Color.text)
+                    .frame(width: 44, height: 44)
+                    .background(SP.Color.card)
+                    .clipShape(Circle())
+                    .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 3)
+            }
+            
+            Button {
                 isSharing = true
             } label: {
                 Image(systemName: "square.and.arrow.up")
                     .font(.system(size: 20))
-                    .foregroundColor(SP.Color.accent)
-                    .padding(10)
+                    .foregroundColor(SP.Color.text)
+                    .frame(width: 44, height: 44)
                     .background(SP.Color.card)
                     .clipShape(Circle())
-                    .shadow(color: SP.Color.raised.opacity(0.3), radius: 4, x: 0, y: 2)
+                    .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 3)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -2891,10 +2909,13 @@ public struct HealthHistoryView: View {
         let dateString: String
         let date: Date
         let avgHr: Int
+        let maxHr: Int
+        let minHr: Int
         let avgSpo2: Int
         let maxTemp: Double
         let steps: Int
         let calories: Int
+        let band: HealthBand
     }
     
     public init() {}
@@ -2913,19 +2934,32 @@ public struct HealthHistoryView: View {
         }
         
         var stats: [DailyStat] = []
+        let config = HealthThresholds.default
+        
         for (dateStr, records) in grouped {
-            let hrSum = records.reduce(0) { $0 + $1.heartRate }
-            let spo2Sum = records.reduce(0) { $0 + $1.spo2 }
-            let tempMax = records.compactMap { $0.bodyTemp }.max() ?? 36.6
+            let hrs = records.map { $0.heartRate }.filter { $0 > 0 }
+            let spo2s = records.map { $0.spo2 }.filter { $0 > 0 }
             
-            let avgHr = hrSum / max(1, records.count)
-            let avgSpo2 = spo2Sum / max(1, records.count)
+            let hrSum = hrs.reduce(0, +)
+            let spo2Sum = spo2s.reduce(0, +)
+            
+            let avgHr = hrs.isEmpty ? 72 : hrSum / hrs.count
+            let maxHr = hrs.max() ?? 0
+            let minHr = hrs.min() ?? 0
+            let avgSpo2 = spo2s.isEmpty ? 98 : spo2Sum / spo2s.count
+            let tempMax = records.compactMap { $0.bodyTemp }.max() ?? 36.6
             
             let steps = stepDict[dateStr] ?? 0
             let calories = Int(Double(steps) * 0.045)
             
+            // المؤشر العام مبني على خوارزمية (متوسط النبض ومتوسط الأكسجين)
+            let hrScore = HealthEngine.subScore(Double(avgHr), config.heartRate)
+            let spo2Score = HealthEngine.subScore(Double(avgSpo2), config.spo2)
+            let finalScore = (hrScore * config.weightHeartRate + spo2Score * config.weightSpo2) / (config.weightHeartRate + config.weightSpo2)
+            let band = HealthBand.from(score: Int(finalScore))
+            
             let date = records.first?.timestamp ?? Date()
-            stats.append(DailyStat(dateString: dateStr, date: date, avgHr: avgHr, avgSpo2: avgSpo2, maxTemp: tempMax, steps: steps, calories: calories))
+            stats.append(DailyStat(dateString: dateStr, date: date, avgHr: avgHr, maxHr: maxHr, minHr: minHr, avgSpo2: avgSpo2, maxTemp: tempMax, steps: steps, calories: calories, band: band))
         }
         
         return stats.sorted { $0.date > $1.date }
@@ -2962,13 +2996,15 @@ struct DailyStatRow: View {
                     .font(.system(size: 18, weight: .bold))
                     .foregroundColor(SP.Color.text)
                 Spacer()
+                StatusPill(text: stat.band.title, color: stat.band.color)
             }
             
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                 HistoryCard(title: "متوسط النبض", value: "\(stat.avgHr)", unit: "bpm", icon: "heart.fill", color: SP.Color.dangerText)
+                HistoryCard(title: "أعلى نبض", value: "\(stat.maxHr)", unit: "bpm", icon: "arrow.up.heart", color: SP.Color.dangerText)
+                HistoryCard(title: "أقل نبض", value: "\(stat.minHr)", unit: "bpm", icon: "arrow.down.heart", color: SP.Color.ok)
                 HistoryCard(title: "متوسط الأكسجين", value: "\(stat.avgSpo2)", unit: "%", icon: "drop.fill", color: SP.Color.measure)
                 HistoryCard(title: "أعلى حرارة", value: String(format: "%.1f", stat.maxTemp), unit: "°C", icon: "thermometer", color: SP.Color.accent)
-                HistoryCard(title: "الخطوات", value: "\(stat.steps)", unit: "خطوة", icon: "figure.walk", color: SP.Color.ok)
                 HistoryCard(title: "حرق السعرات", value: "\(stat.calories)", unit: "سعرة", icon: "flame.fill", color: .orange)
             }
         }
