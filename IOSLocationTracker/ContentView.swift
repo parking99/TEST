@@ -2598,6 +2598,42 @@ public enum HealthEngine {
         var finalScore = totalWeight > 0 ? Int(baseScore / totalWeight) : 0
         
         // 2. تطبيق السقف (البند 2.11)
+        // V2: Leaky Bucket State Update (Accumulated Memory)
+        let stateManager = HealthEngineStateManager.shared
+        var state = stateManager.state
+        
+        // We only update load once per minute based on the latest sample timestamp to prevent UI refresh double-counting
+        if latest.sampleDate.timeIntervalSince(state.lastUpdate) >= 60 {
+            // Heart Rate Load
+            if let hr = latest.vHeartRate.map(Double.init), config.heartRate.criticalHigh <= hr {
+                state.hrLoad = min(100, state.hrLoad + HealthEngine.hrLoadWeight)
+            } else if let hr = latest.vHeartRate.map(Double.init), config.heartRate.normal.contains(hr) {
+                state.hrLoad = max(0, state.hrLoad - HealthEngine.recoveryRate)
+            }
+            
+            // SpO2 Load (Inverted logic)
+            if let spo2 = latest.vSpo2.map(Double.init), config.spo2.criticalLow >= spo2 {
+                state.spo2Load = min(100, state.spo2Load + HealthEngine.spo2LoadWeight)
+            } else if let spo2 = latest.vSpo2.map(Double.init), config.spo2.normal.contains(spo2) {
+                state.spo2Load = max(0, state.spo2Load - HealthEngine.recoveryRate)
+            }
+            
+            // Temp Load
+            if let temp = latest.bodyTemp, config.bodyTemp.criticalHigh <= temp {
+                state.tempLoad = min(100, state.tempLoad + HealthEngine.tempLoadWeight)
+            } else if let temp = latest.bodyTemp, config.bodyTemp.normal.contains(temp) {
+                state.tempLoad = max(0, state.tempLoad - HealthEngine.recoveryRate)
+            }
+            
+            state.lastUpdate = latest.sampleDate
+            stateManager.state = state
+            stateManager.save()
+        }
+        
+        // Deduct memory load from final score (The worker doesn't recover instantly)
+        let maxLoad = max(state.hrLoad, max(state.spo2Load, state.tempLoad))
+        finalScore = max(0, finalScore - Int(maxLoad))
+        
         if worstState == .danger && finalScore > 49 { finalScore = 49 } 
         else if worstState == .attention && finalScore > 74 { finalScore = 74 }
         
