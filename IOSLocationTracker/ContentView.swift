@@ -2555,16 +2555,66 @@ public enum HealthEngine {
             )
         }
         
+        // --- 1. تحديث الذاكرة التراكمية (Leaky Bucket) ---
+        let stateManager = HealthEngineStateManager.shared
+        var state = stateManager.state
+        
+        // حساب الوقت المنقضي منذ آخر قراءة (بحد أقصى 5 دقائق لمنع القفزات عند الانقطاع)
+        var elapsedMins = 1.0 
+        if state.lastUpdate != .distantPast {
+            elapsedMins = max(0.01, min(5.0, latest.sampleDate.timeIntervalSince(state.lastUpdate) / 60.0))
+        }
+        
+        // تحديث حمل النبض
+        if let hr = latest.vHeartRate.map(Double.init) {
+            if config.heartRate.criticalHigh <= hr || config.heartRate.criticalLow >= hr {
+                state.hrLoad = min(100, state.hrLoad + HealthEngine.hrLoadWeight * elapsedMins * 2.0) // الإرهاق يتراكم بسرعة مضاعفة
+            } else if config.heartRate.normal.contains(hr) {
+                state.hrLoad = max(0, state.hrLoad - HealthEngine.recoveryRate * elapsedMins)
+            }
+        }
+        
+        // تحديث حمل الأكسجين (الخطر بالنزول)
+        if let spo2 = latest.vSpo2.map(Double.init) {
+            if config.spo2.criticalLow >= spo2 {
+                state.spo2Load = min(100, state.spo2Load + HealthEngine.spo2LoadWeight * elapsedMins * 2.0)
+            } else if config.spo2.normal.contains(spo2) {
+                state.spo2Load = max(0, state.spo2Load - HealthEngine.recoveryRate * elapsedMins)
+            }
+        }
+        
+        // تحديث حمل الحرارة
+        if let temp = latest.bodyTemp {
+            if config.bodyTemp.criticalHigh <= temp {
+                state.tempLoad = min(100, state.tempLoad + HealthEngine.tempLoadWeight * elapsedMins * 2.0)
+            } else if config.bodyTemp.normal.contains(temp) {
+                state.tempLoad = max(0, state.tempLoad - HealthEngine.recoveryRate * elapsedMins)
+            }
+        }
+        
+        state.lastUpdate = latest.sampleDate
+        stateManager.state = state
+        stateManager.save()
+        
+        // --- 2. حساب الدرجات بناءً على القيمة اللحظية + الذاكرة ---
         var baseScore = 0.0
         var totalWeight = 0.0
         var indicators: [IndicatorReading] = []
         var worstState: HealthBand = .excellent
         
-        // 1. حساب الدرجات الأساسية
-        func add(_ val: Double?, _ kind: VitalKind, _ bandCfg: HealthThresholds.Band, _ wt: Double, _ disp: String) {
+        func add(_ val: Double?, _ kind: VitalKind, _ bandCfg: HealthThresholds.Band, _ wt: Double, _ disp: String, _ load: Double) {
             guard let v = val else { return }
-            let b = classify(v, bandCfg)
-            let s = subScore(v, bandCfg)
+            var s = subScore(v, bandCfg)
+            
+            // دمج الذاكرة التراكمية في درجة المؤشر الفردي (لا يعود المؤشر أخضر إذا كان هناك حمل متراكم)
+            // كل نقطة حمل تخصم درجتين من المؤشر للتأكيد على الذاكرة
+            s = max(0, s - load * 2.0)
+            
+            // تصنيف اللون الجديد بناءً على الدرجة بعد خصم الذاكرة
+            var b: VitalBand = .normal
+            if s < 50 { b = .critical }
+            else if s < 80 { b = .caution }
+            else { b = .normal }
             
             let currentWorst = HealthBand.from(score: Int(s))
             if currentWorst.rawValue > worstState.rawValue {
@@ -2578,13 +2628,13 @@ public enum HealthEngine {
             totalWeight += wt
         }
         
-        add(latest.vHeartRate.map(Double.init), .heartRate, config.heartRate, config.weightHeartRate, "\(latest.vHeartRate!)")
-        add(latest.vSpo2.map(Double.init), .spo2, config.spo2, config.weightSpo2, "\(latest.vSpo2!)")
+        add(latest.vHeartRate.map(Double.init), .heartRate, config.heartRate, config.weightHeartRate, "\(latest.vHeartRate!)", state.hrLoad)
+        add(latest.vSpo2.map(Double.init), .spo2, config.spo2, config.weightSpo2, "\(latest.vSpo2!)", state.spo2Load)
         if let temp = latest.bodyTemp {
-            add(temp, .bodyTemp, config.bodyTemp, config.weightBodyTemp, String(format: "%.1f", temp))
+            add(temp, .bodyTemp, config.bodyTemp, config.weightBodyTemp, String(format: "%.1f", temp), state.tempLoad)
         }
         if let sys = latest.systolic {
-            add(Double(sys), .pressure, config.systolic, config.weightPressure, "\(sys)")
+            add(Double(sys), .pressure, config.systolic, config.weightPressure, "\(sys)", 0) // الضغط ليس له ذاكرة تراكمية
         }
         
         let stabilityScore: Double = HealthEngine.isStationary(window) ? 100 : max(0, 100 - (100 - baseScore / max(totalWeight, 1)))
@@ -2597,43 +2647,7 @@ public enum HealthEngine {
         
         var finalScore = totalWeight > 0 ? Int(baseScore / totalWeight) : 0
         
-        // 2. تطبيق السقف (البند 2.11)
-        // V2: Leaky Bucket State Update (Accumulated Memory)
-        let stateManager = HealthEngineStateManager.shared
-        var state = stateManager.state
-        
-        // We only update load once per minute based on the latest sample timestamp to prevent UI refresh double-counting
-        if latest.sampleDate.timeIntervalSince(state.lastUpdate) >= 60 {
-            // Heart Rate Load
-            if let hr = latest.vHeartRate.map(Double.init), config.heartRate.criticalHigh <= hr {
-                state.hrLoad = min(100, state.hrLoad + HealthEngine.hrLoadWeight)
-            } else if let hr = latest.vHeartRate.map(Double.init), config.heartRate.normal.contains(hr) {
-                state.hrLoad = max(0, state.hrLoad - HealthEngine.recoveryRate)
-            }
-            
-            // SpO2 Load (Inverted logic)
-            if let spo2 = latest.vSpo2.map(Double.init), config.spo2.criticalLow >= spo2 {
-                state.spo2Load = min(100, state.spo2Load + HealthEngine.spo2LoadWeight)
-            } else if let spo2 = latest.vSpo2.map(Double.init), config.spo2.normal.contains(spo2) {
-                state.spo2Load = max(0, state.spo2Load - HealthEngine.recoveryRate)
-            }
-            
-            // Temp Load
-            if let temp = latest.bodyTemp, config.bodyTemp.criticalHigh <= temp {
-                state.tempLoad = min(100, state.tempLoad + HealthEngine.tempLoadWeight)
-            } else if let temp = latest.bodyTemp, config.bodyTemp.normal.contains(temp) {
-                state.tempLoad = max(0, state.tempLoad - HealthEngine.recoveryRate)
-            }
-            
-            state.lastUpdate = latest.sampleDate
-            stateManager.state = state
-            stateManager.save()
-        }
-        
-        // Deduct memory load from final score (The worker doesn't recover instantly)
-        let maxLoad = max(state.hrLoad, max(state.spo2Load, state.tempLoad))
-        finalScore = max(0, finalScore - Int(maxLoad))
-        
+        // 3. السقف المطلق لأسوأ حالة (حتى بعد المتوسط)
         if worstState == .danger && finalScore > 49 { finalScore = 49 } 
         else if worstState == .attention && finalScore > 74 { finalScore = 74 }
         
@@ -2646,7 +2660,6 @@ public enum HealthEngine {
         )
     }
     
-
     public static func forecast(_ samples: [VitalSample], now: Date = Date(), config: HealthThresholds = .default) -> ForecastResult {
         let window = samples
             .filter { now.timeIntervalSince($0.sampleDate) <= config.displayWindow }
