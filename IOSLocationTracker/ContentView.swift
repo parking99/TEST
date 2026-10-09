@@ -2913,7 +2913,7 @@ public struct HealthHistoryView: View {
         for (dateStr, records) in grouped {
             let hrSum = records.reduce(0) { $0 + $1.heartRate }
             let spo2Sum = records.reduce(0) { $0 + $1.spo2 }
-            let tempMax = records.compactMap { $1.bodyTemp }.max() ?? 36.6
+            let tempMax = records.compactMap { $0.bodyTemp }.max() ?? 36.6
             
             let avgHr = hrSum / max(1, records.count)
             let avgSpo2 = spo2Sum / max(1, records.count)
@@ -2937,34 +2937,42 @@ public struct HealthHistoryView: View {
                         .padding(.top, 50)
                 } else {
                     ForEach(dailyStats) { stat in
-                        VStack(spacing: 12) {
-                            HStack {
-                                Text(stat.dateString)
-                                    .font(.system(size: 18, weight: .bold))
-                                    .foregroundColor(SP.Color.primaryText)
-                                Spacer()
-                            }
-                            
-                            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                                HistoryCard(title: "متوسط النبض", value: "\(stat.avgHr)", unit: "bpm", icon: "heart.fill", color: SP.Color.dangerText)
-                                HistoryCard(title: "متوسط الأكسجين", value: "\(stat.avgSpo2)", unit: "%", icon: "drop.fill", color: SP.Color.measure)
-                                HistoryCard(title: "أعلى حرارة", value: String(format: "%.1f", stat.maxTemp), unit: "°C", icon: "thermometer", color: SP.Color.accent)
-                                HistoryCard(title: "الخطوات", value: "\(stat.steps)", unit: "خطوة", icon: "figure.walk", color: SP.Color.ok)
-                                HistoryCard(title: "حرق السعرات", value: "\(stat.calories)", unit: "سعرة", icon: "flame.fill", color: .orange)
-                            }
-                        }
-                        .padding()
-                        .background(SP.Color.surface)
-                        .cornerRadius(16)
-                        .shadow(color: Color.black.opacity(0.05), radius: 5, x: 0, y: 2)
+                        DailyStatRow(stat: stat)
                     }
                 }
             }
             .padding()
         }
-        .background(SP.Color.background.edgesIgnoringSafeArea(.all))
+        .background(SP.Color.ground.edgesIgnoringSafeArea(.all))
         .navigationTitle("السجل الصحي")
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+struct DailyStatRow: View {
+    let stat: HealthHistoryView.DailyStat
+    
+    var body: some View {
+        VStack(spacing: 12) {
+            HStack {
+                Text(stat.dateString)
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(SP.Color.text)
+                Spacer()
+            }
+            
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                HistoryCard(title: "متوسط النبض", value: "\(stat.avgHr)", unit: "bpm", icon: "heart.fill", color: SP.Color.dangerText)
+                HistoryCard(title: "متوسط الأكسجين", value: "\(stat.avgSpo2)", unit: "%", icon: "drop.fill", color: SP.Color.measure)
+                HistoryCard(title: "أعلى حرارة", value: String(format: "%.1f", stat.maxTemp), unit: "°C", icon: "thermometer", color: SP.Color.accent)
+                HistoryCard(title: "الخطوات", value: "\(stat.steps)", unit: "خطوة", icon: "figure.walk", color: SP.Color.ok)
+                HistoryCard(title: "حرق السعرات", value: "\(stat.calories)", unit: "سعرة", icon: "flame.fill", color: .orange)
+            }
+        }
+        .padding()
+        .background(SP.Color.card)
+        .cornerRadius(16)
+        .shadow(color: Color.black.opacity(0.05), radius: 5, x: 0, y: 2)
     }
 }
 
@@ -2988,7 +2996,7 @@ struct HistoryCard: View {
                 HStack(alignment: .firstTextBaseline, spacing: 2) {
                     Text(value)
                         .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(SP.Color.primaryText)
+                        .foregroundColor(SP.Color.text)
                     Text(unit)
                         .font(.system(size: 10))
                         .foregroundColor(SP.Color.muted)
