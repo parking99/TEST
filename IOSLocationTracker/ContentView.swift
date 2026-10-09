@@ -2953,9 +2953,30 @@ public struct HealthHistoryView: View {
             let calories = Int(Double(steps) * 0.045)
             
             // المؤشر العام مبني على خوارزمية (متوسط النبض ومتوسط الأكسجين)
-            let hrScore = HealthEngine.subScore(Double(avgHr), config.heartRate)
-            let spo2Score = HealthEngine.subScore(Double(avgSpo2), config.spo2)
-            let finalScore = (hrScore * config.weightHeartRate + spo2Score * config.weightSpo2) / (config.weightHeartRate + config.weightSpo2)
+            // 1. تقييم المتوسطات
+            let avgHrScore = HealthEngine.subScore(Double(avgHr), config.heartRate)
+            let avgSpo2Score = HealthEngine.subScore(Double(avgSpo2), config.spo2)
+            
+            // 2. تقييم التطرف (الأحداث الحرجة خلال اليوم)
+            let maxHrScore = HealthEngine.subScore(Double(maxHr), config.heartRate)
+            let minHrScore = HealthEngine.subScore(Double(minHr), config.heartRate)
+            let minSpo2 = spo2s.min() ?? 98
+            let minSpo2Score = HealthEngine.subScore(Double(minSpo2), config.spo2)
+            
+            let extremeHrScore = min(maxHrScore, minHrScore)
+            let extremeSpo2Score = minSpo2Score
+            
+            // 3. الدرجة الفعالة (الأحداث الحرجة تسحب التقييم العام بقوة 60%)
+            let effectiveHrScore = (avgHrScore * 0.4) + (extremeHrScore * 0.6)
+            let effectiveSpo2Score = (avgSpo2Score * 0.4) + (extremeSpo2Score * 0.6)
+            
+            var finalScore = (effectiveHrScore * config.weightHeartRate + effectiveSpo2Score * config.weightSpo2) / (config.weightHeartRate + config.weightSpo2)
+            
+            // 4. سقف أسوأ حالة (إذا وصل العامل لمرحلة الخطر في أي لحظة، لا يمكن تقييم يومه بممتاز)
+            let extremeBand = HealthBand.from(score: Int(min(extremeHrScore, extremeSpo2Score)))
+            if extremeBand == .danger && finalScore > 49 { finalScore = 49 }
+            else if extremeBand == .attention && finalScore > 74 { finalScore = 74 }
+            
             let band = HealthBand.from(score: Int(finalScore))
             
             let date = records.first?.timestamp ?? Date()
