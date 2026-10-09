@@ -2668,12 +2668,14 @@ public enum HealthEngine {
                 if p > 0.30 { // Warn earlier in V2 due to load
                     let tag = isDescending ? "هبوط مستمر" : "ارتفاع مستمر"
                     let loadWarning = load > 50 ? " وحمل تراكمي عالي" : ""
+                    let speedStr = String(format: "%.1f", abs(slope))
+                    let whyReason = "المؤشر يتجه نحو الخطر بسرعة مع \(tag)\(loadWarning). السرعة: \(speedStr)/دقيقة"
                     risks.append(RiskForecast(
                         id: kind.rawValue,
-                        name: "احتمالية تجاوز (kind.title)",
+                        name: "احتمالية تجاوز \(kind.title)",
                         probability: p,
                         level: p > 0.70 ? .high : .medium,
-                        why: "المؤشر يتجه نحو الخطر بسرعة مع (tag)(loadWarning). السرعة: (String(format: "%.1f", abs(slope)))/دقيقة",
+                        why: whyReason,
                         tags: [kind.title, "تحذير مبكر"]
                     ))
                 }
