@@ -2610,8 +2610,149 @@ public enum HealthEngine {
         )
     }
     
+
     public static func forecast(_ samples: [VitalSample], now: Date = Date(), config: HealthThresholds = .default) -> ForecastResult {
-        return ForecastResult(risks: [], projectedScore: nil, coverage: 0, insufficientCoverage: true)
+        let window = samples
+            .filter { now.timeIntervalSince($0.sampleDate) <= config.displayWindow }
+            .sorted { $0.sampleDate < $1.sampleDate }
+            
+        let cvg = coverage(window, span: config.displayWindow, config: config)
+        if cvg < 0.25 {
+            return ForecastResult(risks: [], projectedScore: nil, coverage: cvg, insufficientCoverage: true)
+        }
+        
+        let trendWindow = window.filter { now.timeIntervalSince($0.sampleDate) <= config.trendWindow }
+        guard let latest = window.last else {
+            return ForecastResult(risks: [], projectedScore: nil, coverage: cvg, insufficientCoverage: true)
+        }
+        
+        let state = HealthEngineStateManager.shared.state
+        var risks: [RiskForecast] = []
+        var totalWeight = 0.0
+        var projectedBaseScore = 0.0
+        
+        func calculateRisk(
+            kind: VitalKind, current: Double?, threshold: Double, normalEdge: Double,
+            band: HealthThresholds.Band, weight: Double, load: Double, baseline: Double,
+            isDescending: Bool = false
+        ) -> Trend? {
+            totalWeight += weight
+            let t = trend(of: trendWindow, config: config, threshold: threshold) { 
+                switch kind {
+                case .heartRate: return $0.vHeartRate.map(Double.init)
+                case .spo2: return $0.vSpo2.map(Double.init)
+                case .bodyTemp: return $0.bodyTemp
+                case .pressure: return $0.systolic.map(Double.init)
+                default: return nil
+                }
+            }
+            
+            if let currentVal = current, let tr = t {
+                // V2 Smart Probability Calculation
+                let slope = tr.slopePerMinute
+                let momentum = isDescending ? (slope < 0 ? tr.rSquared : 0.1) : (slope > 0 ? tr.rSquared : 0.1)
+                
+                let span = abs(threshold - normalEdge)
+                let nearness = span > 0 ? max(0, min(1, 1 - abs(threshold - currentVal) / span)) : 0
+                
+                // Inheriting V2 memory (load & baseline)
+                let loadFactor = min(1.0, load / 100.0) // 0 to 1 based on accumulated stress
+                let baselineDrift = abs(baseline - normalEdge) // simplified drift
+                let baselineRisk = min(0.3, baselineDrift / 100.0) 
+                
+                // Final Probability merges trend momentum with historical load
+                var p = (nearness * 0.5 + momentum * 0.3 + loadFactor * 0.2) * cvg
+                p += baselineRisk // drift adds inherent background risk
+                p = max(0, min(1, p))
+                
+                if p > 0.30 { // Warn earlier in V2 due to load
+                    let tag = isDescending ? "هبوط مستمر" : "ارتفاع مستمر"
+                    let loadWarning = load > 50 ? " وحمل تراكمي عالي" : ""
+                    risks.append(RiskForecast(
+                        id: kind.rawValue,
+                        name: "احتمالية تجاوز (kind.title)",
+                        probability: p,
+                        level: p > 0.70 ? .high : .medium,
+                        why: "المؤشر يتجه نحو الخطر بسرعة مع (tag)(loadWarning). السرعة: (String(format: "%.1f", abs(slope)))/دقيقة",
+                        tags: [kind.title, "تحذير مبكر"]
+                    ))
+                }
+                
+                // Projected Score
+                let projectedVal = tr.projected
+                projectedBaseScore += subScore(projectedVal, band) * weight
+            } else if let currentVal = current {
+                projectedBaseScore += subScore(currentVal, band) * weight
+            }
+            
+            return t
+        }
+        
+        let hrTrend = calculateRisk(
+            kind: .heartRate, current: latest.vHeartRate.map(Double.init),
+            threshold: config.heartRate.criticalHigh, normalEdge: config.heartRate.normal.upperBound,
+            band: config.heartRate, weight: config.weightHeartRate, load: state.hrLoad, baseline: state.baselineHr
+        )
+        
+        let spo2Trend = calculateRisk(
+            kind: .spo2, current: latest.vSpo2.map(Double.init),
+            threshold: config.spo2.criticalLow, normalEdge: config.spo2.normal.lowerBound,
+            band: config.spo2, weight: config.weightSpo2, load: state.spo2Load, baseline: state.baselineSpo2,
+            isDescending: true
+        )
+        
+        let tempTrend = calculateRisk(
+            kind: .bodyTemp, current: latest.bodyTemp,
+            threshold: config.bodyTemp.criticalHigh, normalEdge: config.bodyTemp.normal.upperBound,
+            band: config.bodyTemp, weight: config.weightBodyTemp, load: state.tempLoad, baseline: 36.5
+        )
+        
+        let sysTrend = calculateRisk(
+            kind: .pressure, current: latest.systolic.map(Double.init),
+            threshold: config.systolic.criticalHigh, normalEdge: config.systolic.normal.upperBound,
+            band: config.systolic, weight: config.weightPressure, load: 0, baseline: 120
+        )
+        
+        let finalProjectedScore = totalWeight > 0 ? Int((projectedBaseScore / totalWeight).rounded()) : nil
+        
+        return ForecastResult(
+            risks: risks.sorted { $0.probability > $1.probability },
+            projectedScore: finalProjectedScore,
+            coverage: cvg,
+            insufficientCoverage: false
+        )
+    }
+    
+    private static func trend(
+        of samples: [VitalSample],
+        config: HealthThresholds,
+        threshold: Double,
+        value: (VitalSample) -> Double?
+    ) -> Trend? {
+        let points: [(x: Double, y: Double)] = samples.compactMap { s in
+            guard let y = value(s) else { return nil }
+            return (s.sampleDate.timeIntervalSince1970 / 60, y)
+        }
+        guard points.count >= 4, let last = points.last else { return nil }
+
+        let n = Double(points.count)
+        let mx = points.reduce(0) { $0 + $1.x } / n
+        let my = points.reduce(0) { $0 + $1.y } / n
+
+        let sxx = points.reduce(0) { $0 + ($1.x - mx) * ($1.x - mx) }
+        guard sxx > 0 else { return nil }
+
+        let sxy = points.reduce(0) { $0 + ($1.x - mx) * ($1.y - my) }
+        let slope = sxy / sxx
+        let syy = points.reduce(0) { $0 + ($1.y - my) * ($1.y - my) }
+        let r2 = syy > 0 ? min(1, max(0, (sxy * sxy) / (sxx * syy))) : 0
+
+        let horizon = config.forecastHorizon / 60
+        let projected = last.y + slope * horizon
+        let minToThresh = slope != 0 ? (threshold - last.y) / slope : nil
+        let validMin = (minToThresh ?? -1) > 0 ? minToThresh : nil
+
+        return Trend(slopePerMinute: slope, rSquared: r2, projected: projected, minutesToThreshold: validMin)
     }
     
     public static func classify(_ v: Double, _ b: HealthThresholds.Band) -> VitalBand {
@@ -2666,7 +2807,19 @@ public enum HealthEngine {
         }
     }
     
+
     private static func trend(for kind: VitalKind, in window: [VitalSample]) -> Trend? {
-        return Trend(slopePerMinute: 0, rSquared: 0, projected: 0, minutesToThreshold: nil)
+        let config = HealthThresholds.default
+        let t = trend(of: window, config: config, threshold: 0) { 
+            switch kind {
+            case .heartRate: return $0.vHeartRate.map(Double.init)
+            case .spo2: return $0.vSpo2.map(Double.init)
+            case .bodyTemp: return $0.bodyTemp
+            case .pressure: return $0.systolic.map(Double.init)
+            default: return nil
+            }
+        }
+        return t
     }
+
 }
