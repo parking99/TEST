@@ -74,6 +74,24 @@ struct AlertsScreen: View {
                 Label(status, systemImage: ido.isConnected ? "applewatch.radiowaves.left.and.right" : "applewatch.slash")
                     .font(SP.Font.ui(11.5))
                     .foregroundStyle(SP.Color.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if ido.isConnected {
+                HStack(spacing: 10) {
+                    Button {
+                        store.testBuzz()
+                    } label: {
+                        Label("اختبار اهتزاز السوار", systemImage: "waveform")
+                    }
+                    .buttonStyle(SPSecondaryButton())
+                    Button {
+                        store.syncToBand()
+                    } label: {
+                        Label("إعادة الإرسال", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(SPSecondaryButton())
+                }
             }
         }
         .spCard(padding: 16, radius: 16)

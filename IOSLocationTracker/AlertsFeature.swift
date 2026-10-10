@@ -218,6 +218,19 @@ public final class ReminderStore: ObservableObject {
     /// نتيجة آخر إرسال للسوار — تُعرض في الشاشة.
     @Published public private(set) var bandStatus: String = ""
 
+    /// كيف يهتز السوار في وقت المنبّه.
+    public enum BandMode {
+        case unknown
+        /// المنبّهات محفوظة داخل السوار — تعمل حتى والتطبيق مغلق.
+        case native
+        /// السوار لا يحفظ المنبّهات (أو رفضها) — التطبيق يهزّه في الوقت بأمر الاهتزاز.
+        case appDriven
+    }
+    @Published public private(set) var bandMode: BandMode = .unknown
+
+    private var ticker: Timer?
+    private var firedKeys: Set<String> = []
+
     private let key = "reminders_v1"
     public let maxReminders = 8
 
@@ -227,6 +240,49 @@ public final class ReminderStore: ObservableObject {
             reminders = saved
         }
         expireOneTime()
+        startTicker()
+    }
+
+    // MARK: الاهتزاز عبر التطبيق
+
+    /// كل ٢٠ ثانية: إن حان منبّه والسوار لا يحفظ المنبّهات، يهزّه التطبيق بنفسه.
+    /// يعمل ما دام التطبيق يعمل في الخلفية (الموقع والبلوتوث يبقيانه حياً).
+    private func startTicker() {
+        ticker?.invalidate()
+        ticker = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
+            self?.tick()
+        }
+    }
+
+    private func tick(now: Date = Date()) {
+        guard bandMode != .native else { return }
+        let cal = Calendar.current
+        let c = cal.dateComponents([.year, .month, .day, .hour, .minute, .weekday], from: now)
+        let stamp = String(format: "%04d%02d%02d%02d%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0, c.hour ?? 0, c.minute ?? 0)
+
+        for r in reminders where r.isEnabled && r.vibrateBand && r.hour == c.hour && r.minute == c.minute {
+            let due: Bool
+            if r.weekdays.isEmpty {
+                due = r.oneTimeDate.map { cal.isDate($0, equalTo: now, toGranularity: .minute) } ?? false
+            } else {
+                due = r.weekdays.contains(c.weekday ?? 0)
+            }
+            let key = r.id.uuidString + stamp
+            guard due, !firedKeys.contains(key) else { continue }
+            firedKeys.insert(key)
+            // ثلاث هزّات متباعدة حتى تُلاحَظ.
+            for i in 0..<3 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 8) {
+                    IdoSmartManager.shared.buzz(seconds: 4)
+                }
+            }
+        }
+        if firedKeys.count > 50 { firedKeys.removeAll() }
+    }
+
+    /// زر «اختبار اهتزاز السوار».
+    public func testBuzz() {
+        IdoSmartManager.shared.buzz(seconds: 3)
     }
 
     public static var notificationCategoryDefinition: UNNotificationCategory {
@@ -345,6 +401,8 @@ public final class ReminderStore: ObservableObject {
     // MARK: السوار
 
     /// يرسل قائمة المنبّهات كاملة للسوار فيهتز في وقتها حتى لو كان الجوال بعيداً أو التطبيق مغلقاً.
+    /// يُفحص جدول قدرات السوار أولاً: كثير من الأساور (خصوصاً بلا شاشة) لا تحفظ المنبّهات،
+    /// وحينها يتولى التطبيق الاهتزاز في الوقت.
     public func syncToBand() {
         let ido = IdoSmartManager.shared
         guard ido.isConnected else {
@@ -352,9 +410,19 @@ public final class ReminderStore: ObservableObject {
             return
         }
 
-        let supported = sdk.funcTable.alarmCount
-        let capacity = supported > 0 ? supported : 5
-        let forBand = reminders.filter { $0.vibrateBand }.prefix(capacity)
+        let table = sdk.funcTable
+        let capacity = table.alarmCount
+        guard capacity > 0 || table.syncV3SyncAlarm else {
+            DispatchQueue.main.async {
+                self.bandMode = .appDriven
+                self.bandStatus = "سوارك لا يحفظ المنبّهات — سيهزّه التطبيق في وقت المنبّه (يلزم بقاء التطبيق في الخلفية والسوار متصلاً)."
+            }
+            return
+        }
+
+        let limit = capacity > 0 ? capacity : 5
+        let forBand = Array(reminders.filter { $0.vibrateBand }.prefix(limit))
+        let noSnooze = table.v3AlarmNotSupportRepeat
 
         let items: [IDOAlarmItem] = forBand.enumerated().map { index, r in
             IDOAlarmItem(
@@ -362,32 +430,51 @@ public final class ReminderStore: ObservableObject {
                 delayMin: 0,
                 hour: r.hour,
                 minute: r.minute,
-                name: String(r.displayText.prefix(20)),
+                name: Self.truncated(r.displayText, maxBytes: 23),
                 repeats: Set(r.weekdays.compactMap(Self.idoWeek)),
                 isOpen: r.isEnabled,
-                repeatTimes: 3,
+                repeatTimes: noSnooze ? 0 : 3,
                 shockOnOff: 1,
                 status: .displayed,
-                tsnoozeDuration: 10,
-                type: r.kind.idoType
+                tsnoozeDuration: noSnooze ? 0 : 10,
+                type: Self.supportedType(for: r.kind, table: table)
             )
         }
 
         Cmds.setAlarm(alarm: IDOAlarmModel(items: items)).send { [weak self] result in
-            let ok: Bool
-            if case .success = result { ok = true } else { ok = false }
             DispatchQueue.main.async {
                 guard let self = self else { return }
-                let skipped = self.reminders.filter { $0.vibrateBand }.count - forBand.count
-                if ok {
+                switch result {
+                case .success:
+                    self.bandMode = .native
+                    let skipped = self.reminders.filter { $0.vibrateBand }.count - forBand.count
                     self.bandStatus = skipped > 0
-                        ? "أُرسلت \(forBand.count) منبّهات للسوار — السوار يتّسع لـ\(capacity) فقط."
+                        ? "أُرسلت \(forBand.count) منبّهات للسوار — يتّسع لـ\(limit) فقط، والباقي يهزّه التطبيق."
                         : "المنبّهات محفوظة في السوار."
-                } else {
-                    self.bandStatus = "تعذّر الإرسال للسوار — سيُعاد عند الاتصال القادم."
+                    if skipped > 0 { self.bandMode = .appDriven }
+                case .failure(let error):
+                    self.bandMode = .appDriven
+                    self.bandStatus = "السوار رفض حفظ المنبّهات (رمز \(error.code)) — سيهزّه التطبيق في وقت المنبّه بدلاً من ذلك."
                 }
             }
         }
+    }
+
+    /// نوع يدعمه السوار: «دواء» إن كان مدعوماً، وإلا منبّه الاستيقاظ العام.
+    static func supportedType(for kind: ReminderKind, table: any IDOFuncTableInterface) -> IDOAlarmType {
+        if kind == .medication && table.alarmMedicine { return .medication }
+        if kind == .rest && table.alarmRest { return .other }
+        return .wakeUp
+    }
+
+    /// اسم المنبّه لا يتجاوز ٢٣ بايت — العربية بايتان للحرف.
+    static func truncated(_ text: String, maxBytes: Int) -> String {
+        var out = ""
+        for ch in text {
+            if (out + String(ch)).utf8.count > maxBytes { break }
+            out.append(ch)
+        }
+        return out
     }
 
     /// ترقيم Apple (١ الأحد) إلى ترقيم السوار (٠ الإثنين … ٦ الأحد).
