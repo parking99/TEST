@@ -3155,57 +3155,38 @@ import ActivityKit
 #endif
 import UserNotifications
 
-// MARK: - البيانات المشتركة مع الويدجت (Live Activity)
-
-#if canImport(ActivityKit)
-@available(iOS 16.1, *)
-public struct HealthActivityAttributes: ActivityAttributes {
-    public struct ContentState: Codable, Hashable {
-        public var heartRate: Int
-        public var spo2: Int
-        public var statusMessage: String
-        public var isCritical: Bool
-        
-        public init(heartRate: Int, spo2: Int, statusMessage: String, isCritical: Bool) {
-            self.heartRate = heartRate
-            self.spo2 = spo2
-            self.statusMessage = statusMessage
-            self.isCritical = isCritical
-        }
-    }
-
-    public var employeeID: String
-    
-    public init(employeeID: String) {
-        self.employeeID = employeeID
-    }
-}
-#endif
+// HealthActivityAttributes في ملف مستقل مشترك مع امتداد شاشة القفل.
 
 // MARK: - المدير الرئيسي للإشعارات المستمرة
 
+/// النشاط المباشر على شاشة القفل: النبض والأكسجين والحالة، ومعها البطاقة الطبية.
 public final class HealthLiveActivityManager {
     public static let shared = HealthLiveActivityManager()
     private init() {}
-    
+
+    private var lastHeartRate = 0
+    private var lastSpo2 = 0
+    private var lastMessage = "قيد المراقبة المستمرة"
+    private var lastCritical = false
+
     public func start(employeeID: String, heartRate: Int, spo2: Int) {
         #if canImport(ActivityKit)
         if #available(iOS 16.1, *) {
             guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
-            
-            // إنهاء أي نشاط سابق لنفس المعرّف
-            endAll()
-            
-            let attributes = HealthActivityAttributes(employeeID: employeeID)
-            let state = HealthActivityAttributes.ContentState(
-                heartRate: heartRate,
-                spo2: spo2,
-                statusMessage: "قيد المراقبة المستمرة",
-                isCritical: false
-            )
-            
+
+            // إنهاء النشاطات السابقة فقط — التقاطها قبل الطلب حتى لا يُنهى الجديد معها.
+            let previous = Activity<HealthActivityAttributes>.activities
+            Task {
+                for activity in previous {
+                    await activity.end(dismissalPolicy: .immediate)
+                }
+            }
+
+            lastHeartRate = heartRate
+            lastSpo2 = spo2
             do {
-                _ = try Activity.request(attributes: attributes, contentState: state, pushType: nil)
+                _ = try Activity.request(attributes: HealthActivityAttributes(employeeID: employeeID),
+                                         contentState: state(), pushType: nil)
                 print("[LiveActivity] Started successfully")
             } catch {
                 print("[LiveActivity] Error starting: \(error.localizedDescription)")
@@ -3213,25 +3194,50 @@ public final class HealthLiveActivityManager {
         }
         #endif
     }
-    
+
     public func update(heartRate: Int, spo2: Int, isCritical: Bool, message: String) {
+        lastHeartRate = heartRate
+        lastSpo2 = spo2
+        lastCritical = isCritical
+        lastMessage = message
+        push()
+    }
+
+    /// إعادة نشر البطاقة الطبية بعد تعديلها من شاشة «الهوية».
+    public func refreshMedicalCard() {
+        push()
+    }
+
+    private func push() {
         #if canImport(ActivityKit)
         if #available(iOS 16.1, *) {
+            let newState = state()
             Task {
                 for activity in Activity<HealthActivityAttributes>.activities {
-                    let newState = HealthActivityAttributes.ContentState(
-                        heartRate: heartRate,
-                        spo2: spo2,
-                        statusMessage: message,
-                        isCritical: isCritical
-                    )
                     await activity.update(using: newState)
                 }
             }
         }
         #endif
     }
-    
+
+    #if canImport(ActivityKit)
+    @available(iOS 16.1, *)
+    private func state() -> HealthActivityAttributes.ContentState {
+        HealthActivityAttributes.ContentState(
+            heartRate: lastHeartRate,
+            spo2: lastSpo2,
+            statusMessage: lastMessage,
+            isCritical: lastCritical,
+            bloodType: MedicalProfile.bloodType ?? "",
+            conditions: VoiceAlertManager.shared.conditionsText ?? "",
+            allergies: MedicalProfile.allergies ?? "",
+            emergencyPhone: [MedicalProfile.emergencyName, MedicalProfile.emergencyPhone]
+                .compactMap { $0 }.joined(separator: " ")
+        )
+    }
+    #endif
+
     public func endAll() {
         #if canImport(ActivityKit)
         if #available(iOS 16.1, *) {

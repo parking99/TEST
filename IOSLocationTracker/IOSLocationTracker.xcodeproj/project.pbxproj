@@ -7,6 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		W001 /* HealthActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = W101; };
+		W002 /* HealthActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = W101; };
+		W003 /* SecurityPassWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = W102; };
+		W004 /* SecurityPassWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = W104; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		A021 /* HealthEngineState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A121; };
 		A030 /* HealthEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A130; };
 		A031 /* SleepStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A131; };
@@ -49,7 +53,28 @@
 		Z001 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = Z102 /* ZIPFoundation */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		W602 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A601;
+			proxyType = 1;
+			remoteGlobalIDString = W301;
+			remoteInfo = SecurityPassWidget;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXCopyFilesBuildPhase section */
+		W501 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				W004 /* SecurityPassWidget.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A505 /* Embed Frameworks */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -68,6 +93,10 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		W101 /* HealthActivityAttributes.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = HealthActivityAttributes.swift; sourceTree = "<group>"; };
+		W102 /* SecurityPassWidget.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = SecurityPassWidget.swift; sourceTree = "<group>"; };
+		W103 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		W104 /* SecurityPassWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SecurityPassWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A121 /* HealthEngineState.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = HealthEngineState.swift; sourceTree = "<group>"; };
 		A130 /* HealthEngine.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = HealthEngine.swift; sourceTree = "<group>"; };
 		A131 /* SleepStore.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = SleepStore.swift; sourceTree = "<group>"; };
@@ -130,6 +159,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		W502 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -145,6 +181,7 @@
 				A133,
 				A134,
 				A135,
+				W101,
 				A122,
 				A103,
 				A106,
@@ -165,6 +202,7 @@
 			isa = PBXGroup;
 			children = (
 				A105,
+				W104,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -195,9 +233,19 @@
 			isa = PBXGroup;
 			children = (
 				A201,
+				W201,
 				A204,
 				A202,
 			);
+			sourceTree = "<group>";
+		};
+		W201 /* SecurityPassWidget */ = {
+			isa = PBXGroup;
+			children = (
+				W102,
+				W103,
+			);
+			path = SecurityPassWidget;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -211,10 +259,12 @@
 				A503 /* Frameworks */,
 				A501 /* Resources */,
 				A505 /* Embed Frameworks */,
+				W501 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				W601 /* PBXTargetDependency */,
 			);
 			name = IOSLocationTracker;
 			packageProductDependencies = (
@@ -223,6 +273,23 @@
 			productName = IOSLocationTracker;
 			productReference = A105;
 			productType = "com.apple.product-type.application";
+		};
+		W301 /* SecurityPassWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = W401;
+			buildPhases = (
+				W503 /* Sources */,
+				W502 /* Frameworks */,
+				W504 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = SecurityPassWidget;
+			productName = SecurityPassWidget;
+			productReference = W104;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -234,6 +301,9 @@
 				LastUpgradeCheck = 1600;
 				TargetAttributes = {
 					A301 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+					W301 = {
 						CreatedOnToolsVersion = 16.0;
 					};
 				};
@@ -255,6 +325,7 @@
 			projectRoot = "";
 			targets = (
 				A301,
+				W301,
 			);
 		};
 /* End PBXProject section */
@@ -267,6 +338,13 @@
 				B013 /* icon_assets.bundle in Resources */,
 				A020 /* medical_alert.wav in Resources */,
 				A033 /* AlertVoice in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		W504 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -285,6 +363,7 @@
 				A032 /* VoiceAlert.swift in Sources */,
 				A034 /* AlertsFeature.swift in Sources */,
 				A035 /* AlertsScreen.swift in Sources */,
+				W001 /* HealthActivityAttributes.swift in Sources */,
 				A003 /* LocationManager.swift in Sources */,
 				A004 /* IdoSmartManager.swift in Sources */,
 				A005 /* BloodPressureAlgorithm.swift in Sources */,
@@ -297,7 +376,24 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		W503 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				W002 /* HealthActivityAttributes.swift in Sources */,
+				W003 /* SecurityPassWidget.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		W601 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = W301 /* SecurityPassWidget */;
+			targetProxy = W602 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		A701 = {
@@ -414,6 +510,54 @@
 			};
 			name = Release;
 		};
+		W701 = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = SecurityPassWidget/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.1;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.securitypass.widget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		W702 = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = SecurityPassWidget/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.1;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.securitypass.widget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -431,6 +575,15 @@
 			buildConfigurations = (
 				A701,
 				A702,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		W401 = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				W701,
+				W702,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

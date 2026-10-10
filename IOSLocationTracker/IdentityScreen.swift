@@ -60,6 +60,9 @@ struct IdentityScreen: View {
                 .spCard(padding: 16, radius: 16)
 
                 healthProfileCard
+                    .onChange(of: medicalCardSignature) { _ in
+                        HealthLiveActivityManager.shared.refreshMedicalCard()
+                    }
 
                 // MARK: - Map View
                 VStack(alignment: .leading, spacing: 9) {
@@ -248,6 +251,11 @@ extension IdentityScreen {
             .buttonStyle(SPSecondaryButton())
         }
         .spCard(padding: 16, radius: 16)
+    }
+
+    /// أي تغيير في البطاقة يُعاد نشره على شاشة القفل.
+    var medicalCardSignature: String {
+        [bloodType, allergies, emergencyName, emergencyPhone, String(conditionsMask), otherConditions].joined(separator: "|")
     }
 
     private func medicalField(_ placeholder: String, text: Binding<String>, phone: Bool = false) -> some View {
