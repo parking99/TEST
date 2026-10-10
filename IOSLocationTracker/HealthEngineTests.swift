@@ -115,6 +115,18 @@ final class HealthEngineTests: XCTestCase {
         XCTAssertEqual(HealthEngine.assess(samples, now: now).score, first, "إعادة الرسم لا تغيّر التقييم")
     }
 
+    func testRapidRiseIsDetected() {
+        let changes = HealthEngine.rapidChanges(series(hr: Array(repeating: 75, count: 12) + [112, 114, 113]))
+        XCTAssertEqual(changes.first?.kind, .heartRate)
+        XCTAssertEqual(changes.first?.isRise, true)
+        XCTAssertEqual(changes.first?.from, 75)
+    }
+
+    func testSingleSpikeIsNotRapidChange() {
+        let changes = HealthEngine.rapidChanges(series(hr: Array(repeating: 75, count: 12) + [76, 140, 75]))
+        XCTAssertTrue(changes.isEmpty, "قراءة حركة واحدة لا تُعدّ تغيّراً سريعاً")
+    }
+
     func testEpisodesNeedTwoConsecutiveReadings() {
         let samples = series(hr: [75, 145, 75, 75, 141, 142, 143, 75])
         let eps = HealthEngine.episodes(samples)

@@ -21,6 +21,10 @@ struct IdentityScreen: View {
     @AppStorage(VoiceAlertManager.conditionsKey) private var conditionsMask: Int = 0
     @AppStorage(VoiceAlertManager.otherKey) private var otherConditions: String = ""
     @AppStorage(VoiceAlertManager.enabledKey) private var voiceAlertEnabled: Bool = true
+    @AppStorage(MedicalProfile.bloodTypeKey) private var bloodType: String = MedicalProfile.unknownBloodType
+    @AppStorage(MedicalProfile.allergiesKey) private var allergies: String = ""
+    @AppStorage(MedicalProfile.emergencyNameKey) private var emergencyName: String = ""
+    @AppStorage(MedicalProfile.emergencyPhoneKey) private var emergencyPhone: String = ""
 
     var body: some View {
         ScrollView {
@@ -172,6 +176,28 @@ struct IdentityScreen: View {
 extension IdentityScreen {
     var healthProfileCard: some View {
         VStack(alignment: .leading, spacing: 12) {
+            Label("البطاقة الطبية", systemImage: "cross.case.fill")
+                .font(SP.Font.ui(15, .semibold))
+                .foregroundStyle(SP.Color.text)
+
+            HStack {
+                Text("فصيلة الدم")
+                    .font(SP.Font.ui(13, .semibold))
+                    .foregroundStyle(SP.Color.text)
+                Spacer()
+                Picker("فصيلة الدم", selection: $bloodType) {
+                    ForEach(MedicalProfile.bloodTypes, id: \.self) { Text($0).tag($0) }
+                }
+                .pickerStyle(.menu)
+                .tint(SP.Color.accent)
+            }
+
+            medicalField("الحساسية (أدوية، أطعمة…)", text: $allergies)
+            medicalField("اسم جهة الاتصال للطوارئ", text: $emergencyName)
+            medicalField("رقم الطوارئ", text: $emergencyPhone, phone: true)
+
+            Divider().overlay(SP.Color.line)
+
             Text("الأمراض المزمنة")
                 .font(SP.Font.ui(13, .semibold))
                 .foregroundStyle(SP.Color.text)
@@ -194,7 +220,7 @@ extension IdentityScreen {
                         .stroke(SP.Color.lineStrong, lineWidth: 1)
                 )
 
-            Text("تُذكر في التنبيه الصوتي والإشعارات عند الحالة الحرجة لتعريف من يقدّم المساعدة. «أخرى» تظهر في الإشعار فقط.")
+            Text("تظهر البطاقة في إشعارات الحالة الحرجة على شاشة القفل ليراها المسعف دون فتح الجوال، والأمراض تُذكر في التنبيه الصوتي. «أخرى» تظهر في الإشعار فقط.")
                 .font(SP.Font.ui(11.5))
                 .lineSpacing(4)
                 .foregroundStyle(SP.Color.muted)
@@ -222,6 +248,21 @@ extension IdentityScreen {
             .buttonStyle(SPSecondaryButton())
         }
         .spCard(padding: 16, radius: 16)
+    }
+
+    private func medicalField(_ placeholder: String, text: Binding<String>, phone: Bool = false) -> some View {
+        TextField(placeholder, text: text)
+            .font(SP.Font.ui(14))
+            .foregroundStyle(SP.Color.text)
+            .keyboardType(phone ? .phonePad : .default)
+            .padding(.horizontal, 12)
+            .frame(minHeight: 44)
+            .background(SP.Color.ground)
+            .clipShape(RoundedRectangle(cornerRadius: SP.Metric.controlRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: SP.Metric.controlRadius, style: .continuous)
+                    .stroke(SP.Color.lineStrong, lineWidth: 1)
+            )
     }
 
     private func conditionChip(_ condition: ChronicCondition) -> some View {

@@ -13,9 +13,14 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         LocationManager.shared.requestPermissions()
         IdoSmartManager.shared.initSdk()
         HealthAlertCenter.shared.requestAuthorization()
-        HealthAlertCenter.shared.buzzWatch = nil
+        // اهتزاز السوار مع التنبيهات الحرجة والسريعة.
+        HealthAlertCenter.shared.buzzWatch = { IdoSmartManager.shared.buzz() }
         UNUserNotificationCenter.current().delegate = self
-        VoiceAlertManager.registerNotificationActions()
+        UNUserNotificationCenter.current().setNotificationCategories([
+            VoiceAlertManager.notificationCategoryDefinition,
+            ReminderStore.notificationCategoryDefinition
+        ])
+        ReminderStore.shared.scheduleNotifications()
         return true
     }
 
@@ -31,8 +36,13 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
-        if response.actionIdentifier == VoiceAlertManager.okAction {
+        switch response.actionIdentifier {
+        case VoiceAlertManager.okAction:
             DispatchQueue.main.async { VoiceAlertManager.shared.acknowledge() }
+        case ReminderStore.snoozeAction:
+            ReminderStore.shared.snooze(response.notification.request.content)
+        default:
+            break
         }
         completionHandler()
     }
@@ -44,6 +54,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
 
     func applicationWillEnterForeground(_ application: UIApplication) {
         IdoSmartManager.shared.endBackgroundKeepAlive()
+        ReminderStore.shared.expireOneTime()
         GoogleSheetSyncManager.shared.checkAndTriggerPeriodicSyncIfNeeded()
     }
 

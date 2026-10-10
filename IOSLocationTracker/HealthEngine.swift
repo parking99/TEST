@@ -255,6 +255,15 @@ public struct ForecastResult {
     public var horizonMinutes: Int = 60
 }
 
+/// تغيّر سريع في مؤشر خلال دقائق.
+public struct VitalChange {
+    public let kind: VitalKind
+    public let from: Double
+    public let to: Double
+    public let minutes: Int
+    public var isRise: Bool { to > from }
+}
+
 /// نوبة تجاوز حرج متواصلة لمؤشر واحد.
 public struct HealthEpisode: Identifiable {
     public let id = UUID()
@@ -569,6 +578,50 @@ public enum HealthEngine {
             flush()
         }
         return out.sorted { $0.start > $1.start }
+    }
+
+    /// التغيّرات السريعة: وسيط آخر ٣ دقائق مقابل وسيط فترة سابقة.
+    /// النبض ±٢٥ خلال ٥–١٥ دقيقة، الأكسجين هبوط ٤ نقاط، الحرارة ±٠٫٨ خلال ١٠–٣٠ دقيقة.
+    /// الوسيط على الطرفين يمنع قراءة حركة واحدة من إطلاق تنبيه.
+    public static func rapidChanges(_ samples: [VitalSample], config: HealthThresholds = .default) -> [VitalChange] {
+        let sorted = samples.sorted { $0.sampleDate < $1.sampleDate }
+        guard let end = sorted.last?.sampleDate else { return [] }
+
+        func values(_ kind: VitalKind, from a: TimeInterval, to b: TimeInterval) -> [(Date, Double)] {
+            sorted.compactMap { s in
+                let age = end.timeIntervalSince(s.sampleDate)
+                guard age >= a, age <= b, let v = value(s, kind) else { return nil }
+                return (s.sampleDate, v)
+            }
+        }
+
+        let rules: [(VitalKind, earlier: (TimeInterval, TimeInterval), rise: Double?, drop: Double?)] = [
+            (.heartRate, (5 * 60, 15 * 60), 25, 25),
+            (.spo2, (5 * 60, 15 * 60), nil, 4),
+            (.bodyTemp, (10 * 60, 30 * 60), 0.8, 0.8)
+        ]
+
+        var out: [VitalChange] = []
+        for rule in rules {
+            let now = values(rule.0, from: 0, to: 3 * 60)
+            let before = values(rule.0, from: rule.earlier.0, to: rule.earlier.1)
+            guard now.count >= 2, before.count >= 2 else { continue }
+            let a = median(before.map { $0.1 })
+            let b = median(now.map { $0.1 })
+            let mid = before[before.count / 2].0
+            let minutes = max(1, Int((end.timeIntervalSince(mid) / 60).rounded()))
+            if let r = rule.rise, b - a >= r {
+                out.append(VitalChange(kind: rule.0, from: a, to: b, minutes: minutes))
+            } else if let d = rule.drop, a - b >= d {
+                out.append(VitalChange(kind: rule.0, from: a, to: b, minutes: minutes))
+            }
+        }
+        return out
+    }
+
+    /// المسافة بالأمتار بين نقطتين (خط عرض، خط طول).
+    public static func distanceMeters(_ a: (Double, Double), _ b: (Double, Double)) -> Double {
+        distance(a, b)
     }
 
     /// تصنيف قراءة منفردة بلا ذاكرة — لصفوف السجل والتقارير.

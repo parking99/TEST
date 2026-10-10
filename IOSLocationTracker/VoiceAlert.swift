@@ -44,8 +44,18 @@ public final class VoiceAlertManager: NSObject, ObservableObject, AVAudioPlayerD
     static let okAction = "IM_OK"
     private static let notificationID = "critical-state"
 
+    /// ما الذي أطلق التنبيه — يحدد متى يتوقف تلقائياً.
+    public enum Trigger {
+        /// التقييم «خطر»: يتوقف حين تتحسن الحالة.
+        case criticalState
+        /// عدم حركة مع نبض غير طبيعي: يتوقف بالحركة أو «أنا بخير».
+        case inactivity
+    }
+
     /// التنبيه يعمل الآن.
     @Published public private(set) var isActive = false
+    @Published public private(set) var activeTrigger: Trigger?
+    private var detail: String?
 
     private var player: AVAudioPlayer?
     private var queue: [URL] = []
@@ -87,13 +97,27 @@ public final class VoiceAlertManager: NSObject, ObservableObject, AVAudioPlayerD
     public func evaluate(_ assessment: HealthAssessment, now: Date = Date()) {
         let critical = !assessment.isEmpty && assessment.band == .danger
         guard critical else {
-            snoozedUntil = nil
-            if isActive { stop() }
+            if activeTrigger != .inactivity { snoozedUntil = nil }
+            if isActive && activeTrigger == .criticalState { stop() }
             return
         }
-        guard isEnabled, !isActive else { return }
-        if let until = snoozedUntil, now < until { return }
+        _ = trigger(.criticalState, now: now)
+    }
+
+    /// يبدأ التنبيه إن لم يكن يعمل ولم يؤجَّل. يعيد true إن بدأ فعلاً.
+    @discardableResult
+    public func trigger(_ trigger: Trigger, detail: String? = nil, now: Date = Date()) -> Bool {
+        guard isEnabled, !isActive else { return false }
+        if let until = snoozedUntil, now < until { return false }
+        activeTrigger = trigger
+        self.detail = detail
         start(now: now)
+        return true
+    }
+
+    /// زوال سبب التنبيه (مثل عودة الحركة) — يوقفه إن كان هو مصدره.
+    public func resolve(_ trigger: Trigger) {
+        if isActive && activeTrigger == trigger { stop() }
     }
 
     /// زر «أنا بخير» في التطبيق أو في الإشعار.
@@ -113,6 +137,7 @@ public final class VoiceAlertManager: NSObject, ObservableObject, AVAudioPlayerD
         startedAt = now
         postNotification()
         playOnce()
+        HealthAlertCenter.shared.buzzWatch?()
 
         repeatTimer?.invalidate()
         repeatTimer = Timer.scheduledTimer(withTimeInterval: repeatInterval, repeats: true) { [weak self] _ in
@@ -132,6 +157,8 @@ public final class VoiceAlertManager: NSObject, ObservableObject, AVAudioPlayerD
         player?.stop()
         player = nil
         isActive = false
+        activeTrigger = nil
+        detail = nil
         startedAt = nil
         UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [Self.notificationID])
         deactivateSession()
@@ -192,21 +219,29 @@ public final class VoiceAlertManager: NSObject, ObservableObject, AVAudioPlayerD
 
     // MARK: الإشعار
 
-    public static func registerNotificationActions() {
-        let ok = UNNotificationAction(identifier: okAction, title: "أنا بخير", options: [])
-        let category = UNNotificationCategory(identifier: notificationCategory, actions: [ok],
-                                              intentIdentifiers: [], options: [])
-        UNUserNotificationCenter.current().setNotificationCategories([category])
+    public static var notificationCategoryDefinition: UNNotificationCategory {
+        UNNotificationCategory(
+            identifier: notificationCategory,
+            actions: [UNNotificationAction(identifier: okAction, title: "أنا بخير", options: [])],
+            intentIdentifiers: [], options: []
+        )
     }
 
     private func postNotification() {
         let content = UNMutableNotificationContent()
-        content.title = "🚨 حالة صحية حرجة"
-        var body = "تم تشغيل التنبيه الصوتي لطلب المساعدة."
-        if let conditions = conditionsText {
-            body += " الأمراض المزمنة المسجّلة: \(conditions)."
+        let title: String
+        var body: String
+        if activeTrigger == .inactivity {
+            title = "🚨 اشتباه إغماء"
+            body = "لا حركة منذ ١٠ دقائق" + (detail.map { " مع \($0)" } ?? "") + ". تم تشغيل التنبيه الصوتي لطلب المساعدة."
+        } else {
+            title = "🚨 حالة صحية حرجة"
+            body = "تم تشغيل التنبيه الصوتي لطلب المساعدة."
+            AlertLog.shared.add(.critical, title: title, body: body)
         }
         body += " اضغط «أنا بخير» لإيقافه."
+        if let card = MedicalProfile.summary { body += "\n" + card }
+        content.title = title
         content.body = body
         content.sound = UNNotificationSound(named: UNNotificationSoundName(rawValue: "medical_alert.wav"))
         content.interruptionLevel = .timeSensitive

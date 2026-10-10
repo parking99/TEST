@@ -27,7 +27,7 @@ struct ContentView: View {
     /// اتجاه الانتقال الأخير: للأمام = نحو التبويبات التالية في الشريط.
     @State private var movingForward = true
 
-    enum Tab: Int, Hashable { case status, history, devices, sos, identity }
+    enum Tab: Int, Hashable { case status, history, alerts, devices, sos, identity }
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -52,6 +52,9 @@ struct ContentView: View {
             }
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: voiceAlert.isActive)
+        .onChange(of: ido.isConnected) { connected in
+            if connected { ReminderStore.shared.syncToBand() }
+        }
         .preferredColorScheme(.dark)
         .spArabic()
         .onAppear { 
@@ -71,6 +74,7 @@ struct ContentView: View {
                 select(.devices)
             }
         case .history:  HistoryScreen(samples: syncManager.history, employeeID: employeeId)
+        case .alerts:   AlertsScreen(ido: ido)
         case .devices:  DevicesScreen(ido: ido)
         case .sos:      SOSScreen(ido: ido, location: location, employeeId: employeeId)
         case .identity: IdentityScreen(ido: ido, location: location, employeeId: $employeeId)
@@ -121,6 +125,20 @@ struct CriticalAlertBanner: View {
                     .opacity(0.9)
             }
             Spacer(minLength: 8)
+            if let call = MedicalProfile.emergencyCallURL {
+                Button {
+                    UIApplication.shared.open(call)
+                } label: {
+                    Image(systemName: "phone.fill")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(SP.Color.danger)
+                        .frame(width: 40, height: 40)
+                        .background(Color.white)
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("اتصال برقم الطوارئ")
+            }
             Button(action: onOK) {
                 Text("أنا بخير")
                     .font(SP.Font.ui(14, .bold))
@@ -153,6 +171,7 @@ struct SPTabBar: View {
                 HStack(spacing: 4) {
             item(.status,   "الحالة",  "shield",            SP.Color.accent)
             item(.history,  "السجل",   "clock",             SP.Color.ok)
+            item(.alerts,   "التنبيهات", "bell",            SP.Color.caution)
             item(.devices,  "الأجهزة", "dot.radiowaves.left.and.right", SP.Color.measure)
             item(.sos,      "SOS",     "exclamationmark.triangle", SP.Color.dangerText)
             item(.identity, "الهوية",  "person.text.rectangle", SP.Color.accent)
@@ -592,8 +611,60 @@ public final class HealthAlertCenter {
 
         notify(
             title: "⚠️ تنبيه استباقي: \(top.kind?.title ?? "مؤشر حيوي")",
-            body: "\(top.why) خفّف الجهد الآن وخذ استراحة قصيرة، وتواصل مع غرفة العمليات إذا لم تتحسن."
+            body: "\(top.why) خفّف الجهد الآن وخذ استراحة قصيرة، وتواصل مع غرفة العمليات إذا لم تتحسن.",
+            log: .predictive
         )
+    }
+
+    // MARK: الارتفاع والانخفاض والتغيّر السريع
+
+    private var lastRangeAlert: [String: Date] = [:]
+    private let rangeCooldown: TimeInterval = 20 * 60
+    private let rapidCooldown: TimeInterval = 15 * 60
+
+    /// نادِها بعد كل قراءة: تنبيه عند خروج مؤشر عن الطبيعي (دون الحرج — للحرج إنذاره)،
+    /// وعند تغيّر سريع خلال دقائق حتى لو بقي ضمن الطبيعي.
+    public func evaluateChanges(_ samples: [VitalSample], now: Date = Date()) {
+        let sorted = samples.sorted { $0.sampleDate < $1.sampleDate }
+        guard let last = sorted.last, now.timeIntervalSince(last.sampleDate) <= 5 * 60 else { return }
+
+        if AlertSettings.outOfRange {
+            for kind in [VitalKind.heartRate, .spo2, .bodyTemp] {
+                guard let v = HealthEngine.current(kind, in: sorted) else { continue }
+                let band = HealthEngine.band(kind, config)
+                guard HealthEngine.classify(v, band) == .caution else { continue }
+                let high = v > band.normal.upperBound
+                let key = "range-\(kind.rawValue)-\(high)"
+                if let t = lastRangeAlert[key], now.timeIntervalSince(t) < rangeCooldown { continue }
+                lastRangeAlert[key] = now
+
+                let limit = high
+                    ? "أعلى من الطبيعي (حتى \(HealthEngine.format(band.normal.upperBound, kind)))"
+                    : "أقل من الطبيعي (من \(HealthEngine.format(band.normal.lowerBound, kind)))"
+                notify(
+                    title: "\(high ? "⬆️ ارتفاع" : "⬇️ انخفاض") في \(kind.title)",
+                    body: "\(kind.title) الآن \(HealthEngine.format(v, kind))\(kind.unit) — \(limit). خفّف الجهد وراقب حالتك.",
+                    log: .outOfRange,
+                    sound: .default
+                )
+            }
+        }
+
+        if AlertSettings.rapidChange {
+            for change in HealthEngine.rapidChanges(sorted, config: config) where meaningful(change) {
+                let key = "rapid-\(change.kind.rawValue)-\(change.isRise)"
+                if let t = lastRangeAlert[key], now.timeIntervalSince(t) < rapidCooldown { continue }
+                lastRangeAlert[key] = now
+
+                let k = change.kind
+                notify(
+                    title: "⚡ \(change.isRise ? "ارتفاع" : "هبوط") سريع في \(k.title)",
+                    body: "من \(HealthEngine.format(change.from, k)) إلى \(HealthEngine.format(change.to, k))\(k.unit) خلال \(change.minutes) دقيقة. توقّف قليلاً وراقب حالتك.",
+                    log: .rapid
+                )
+                buzzWatch?()
+            }
+        }
     }
 
     private func handleBreach(_ indicator: IndicatorReading, now: Date) {
@@ -607,19 +678,31 @@ public final class HealthAlertCenter {
         lastNotified[indicator.kind] = now
 
         var body = "\(indicator.kind.iconEmoji) قيمة \(indicator.kind.title) أصبحت \(indicator.display)\(indicator.kind.unit) وهذا يمثل خطورة. يرجى التوقف وأخذ قسط من الراحة فوراً."
-        if let conditions = VoiceAlertManager.shared.conditionsText {
-            body += "\nالأمراض المزمنة المسجّلة: \(conditions)."
+        if let card = MedicalProfile.summary {
+            body += "\n" + card
         }
-        notify(title: "🚨 تحذير: \(indicator.kind.title) غير طبيعي", body: body)
+        notify(title: "🚨 تحذير: \(indicator.kind.title) غير طبيعي", body: body, log: .critical)
 
         buzzWatch?()
     }
 
-    private func notify(title: String, body: String) {
+    /// هبوط النبض بعد الجهد طبيعي، وارتفاعه مع بدء النشاط طبيعي — لا يُنبَّه إلا حين ينتهي
+    /// الهبوط تحت الطبيعي أو يقترب الارتفاع من الحد الأعلى.
+    private func meaningful(_ change: VitalChange) -> Bool {
+        guard change.kind == .heartRate else { return true }
+        let band = HealthEngine.band(.heartRate, config)
+        return change.isRise
+            ? change.to >= band.normal.upperBound - 20
+            : change.to < band.normal.lowerBound
+    }
+
+    private func notify(title: String, body: String, log: AlertLogEntry.Kind,
+                        sound: UNNotificationSound = UNNotificationSound(named: UNNotificationSoundName(rawValue: "medical_alert.wav"))) {
+        AlertLog.shared.add(log, title: title, body: body)
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
-        content.sound = UNNotificationSound(named: UNNotificationSoundName(rawValue: "medical_alert.wav"))
+        content.sound = sound
         content.interruptionLevel = .timeSensitive
 
         let request = UNNotificationRequest(

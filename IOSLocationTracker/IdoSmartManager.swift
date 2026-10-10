@@ -807,6 +807,17 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
         }
     }
 
+    // MARK: - اهتزاز السوار
+
+    /// يهزّ السوار بأمر «ابحث عن الجهاز» ثم يوقفه — يعمل مع الأساور بلا شاشة أيضاً.
+    func buzz(seconds: Double = 4) {
+        guard isConnected else { return }
+        _ = Cmds.findDeviceStart().send { _ in }
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
+            _ = Cmds.findDeviceStop().send { _ in }
+        }
+    }
+
     // MARK: - Centralized Heart Rate Filter & Smoother
     func updateLiveHeartRate(_ rawHr: Int, source: String) {
         // Physiologically plausible range for resting to active human pulse

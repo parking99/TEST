@@ -250,6 +250,7 @@ public final class SleepStore: ObservableObject {
         let insight = SleepAnalyzer.insight(for: night, history: records)
         guard insight.level == .poor || insight.hasDebt else { return }
         UserDefaults.standard.set(stamp, forKey: notifiedKey)
+        AlertLog.shared.add(.sleep, title: "نوم \(SleepAnalyzer.format(minutes: night.totalMinutes))", body: insight.message)
 
         let content = UNMutableNotificationContent()
         content.title = "😴 نومك الليلة الماضية \(SleepAnalyzer.format(minutes: night.totalMinutes))"
