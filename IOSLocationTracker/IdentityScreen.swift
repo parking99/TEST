@@ -43,7 +43,7 @@ struct IdentityScreen: View {
                                 .stroke(idFieldFocused ? SP.Color.accent : SP.Color.lineStrong, lineWidth: 1)
                         )
 
-                    Text("هذا الرقم هو ما يعرّفك في غرفة العمليات. تأكد أنه رقمك قبل بدء الوردية.")
+                    Text("هذا الرقم هو ما يعرّفك في غرفة العمليات. تأكد أنه رقمك قبل البدء.")
                         .font(SP.Font.ui(11.5))
                         .lineSpacing(4)
                         .foregroundStyle(SP.Color.muted)
@@ -52,7 +52,7 @@ struct IdentityScreen: View {
                 .spCard(padding: 16, radius: 16)
                 // MARK: - Map View
                 VStack(alignment: .leading, spacing: 9) {
-                    Text("موقع العامل الميداني")
+                    Text("موقعك الحالي")
                         .font(SP.Font.ui(13, .semibold))
                         .foregroundStyle(SP.Color.text)
 

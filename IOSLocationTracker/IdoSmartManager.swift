@@ -1012,6 +1012,14 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
             return
         }
 
+        // النوم له مخزنه المحلي — لا يمر على قارئ المؤشرات اللحظية حتى لا تُقرأ قيمه نبضاً.
+        if type == .sleep {
+            DispatchQueue.main.async {
+                SleepStore.shared.ingest(json: root)
+            }
+            return
+        }
+
         DispatchQueue.main.async {
             self.parseAnySyncPayload(root, type: type)
         }

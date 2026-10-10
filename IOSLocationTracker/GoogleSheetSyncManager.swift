@@ -241,7 +241,7 @@ class GoogleSheetSyncManager: ObservableObject {
                 UserDefaults.standard.set(historyData, forKey: "sync_history_logs")
             }
             let assessment = HealthEngine.assess(self.history)
-            let forecast = HealthEngine.forecast(self.history)
+            let forecast = HealthEngine.forecast(self.history, fatigue: SleepStore.shared.fatigue())
             HealthAlertCenter.shared.evaluate(assessment)
             HealthAlertCenter.shared.evaluateForecast(forecast)
             let hr = heartRate > 0 ? heartRate : 0

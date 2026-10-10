@@ -45,7 +45,8 @@ public struct HealthThresholds {
         }
     }
 
-    public var heartRate = Band(normal: 60...100, criticalLow: 40, criticalHigh: 120)
+    /// الطبيعي حتى ١٢٠ نبضة، والحرج من ١٤٠.
+    public var heartRate = Band(normal: 60...120, criticalLow: 40, criticalHigh: 140)
     public var spo2      = Band(normal: 95...100, criticalLow: 90, criticalHigh: 100)
     public var bodyTemp  = Band(normal: 36.1...37.2, criticalLow: 35.0, criticalHigh: 38.0)
     public var systolic  = Band(normal: 90...129, criticalLow: 85, criticalHigh: 140)
@@ -354,10 +355,13 @@ public enum HealthEngine {
 
     // MARK: - التنبؤ
 
+    /// - Parameter fatigue: إرهاق من قلة النوم ٠…١ (من `SleepStore`). يُمرَّر صفراً في التقارير المشتركة
+    ///   حتى لا تتسرّب بيانات النوم الخاصة إليها.
     public static func forecast(
         _ samples: [VitalSample],
         now: Date = Date(),
-        config: HealthThresholds = .default
+        config: HealthThresholds = .default,
+        fatigue: Double = 0
     ) -> ForecastResult {
         let horizonMinutes = Int(config.forecastHorizon / 60)
         let window = prepared(samples, from: now.addingTimeInterval(-config.displayWindow), to: now)
@@ -395,9 +399,11 @@ public enum HealthEngine {
             let crit = criticalLimits(kind, config)
             let norm = normalLimits(kind, config)
             let load = min(1, loads.value(for: kind) / 100)
-            // الإجهاد المتراكم يرفع الاحتمال بحد أقصى ربع المسافة المتبقية.
+            let tired = min(1, max(0, fatigue))
+            // الإجهاد المتراكم يرفع الاحتمال بحد أقصى ربع المسافة المتبقية، وقلة النوم بحد أقصى ١٥٪ منها.
             let pCrit = 1 - (1 - crossingProbability(t, model: m, now: now, horizon: horizon,
-                                                     upper: crit.upper, lower: crit.lower)) * (1 - 0.25 * load)
+                                                     upper: crit.upper, lower: crit.lower))
+                * (1 - 0.25 * load) * (1 - 0.15 * tired)
             let pOut = crossingProbability(t, model: m, now: now, horizon: horizon,
                                            upper: norm.upper, lower: norm.lower)
             let tr = trend(t, kind: kind, config: config, now: now)
@@ -418,11 +424,12 @@ public enum HealthEngine {
             var tags = [kind.title]
             if tr.direction != .steady { tags.append(tr.direction == .rising ? "ارتفاع مستمر" : "هبوط مستمر") }
             if load > 0.5 { tags.append("إجهاد متراكم") }
+            if tired >= 0.5 { tags.append("قلة نوم") }
             if t.accepted < 10 { tags.append("تقدير أولي") }
 
             risks.append(RiskForecast(
                 id: kind.rawValue, name: name, probability: probability, level: level,
-                why: explain(kind: kind, track: t, trend: tr, load: load, config: config),
+                why: explain(kind: kind, track: t, trend: tr, load: load, tired: tired, config: config),
                 tags: tags, kind: kind, minutesToThreshold: tr.minutesToThreshold
             ))
         }
@@ -957,11 +964,12 @@ public enum HealthEngine {
                 : "انتباه: \(names) خارج النطاق الطبيعي\(extra). خفّف الجهد وراقب."
         case .danger:
             let names = critical.isEmpty ? caution.joined(separator: "، ") : critical.joined(separator: "، ")
-            return "تحذير: \(names.isEmpty ? "مؤشرات حيوية" : names) تجاوز الحد الآمن — توقف عن العمل وتواصل مع غرفة العمليات."
+            return "تحذير: \(names.isEmpty ? "مؤشرات حيوية" : names) تجاوز الحد الآمن — توقف وخذ راحة وتواصل مع غرفة العمليات."
         }
     }
 
-    static func explain(kind: VitalKind, track t: Track, trend tr: Trend, load: Double, config: HealthThresholds) -> String {
+    static func explain(kind: VitalKind, track t: Track, trend tr: Trend, load: Double, tired: Double,
+                        config: HealthThresholds) -> String {
         let now = format(t.level, kind)
         let unit = kind.unit.isEmpty ? "" : " \(kind.unit)"
         var parts: [String] = []
@@ -977,6 +985,7 @@ public enum HealthEngine {
             parts.append("وقد يبلغ الحد الحرج خلال ~\(max(1, Int(eta.rounded()))) دقيقة")
         }
         if load > 0.5 { parts.append("مع إجهاد متراكم") }
+        if tired >= 0.5 { parts.append("مع قلة نوم الليلة الماضية") }
         var text = parts.joined(separator: " ") + "."
         if t.accepted < 10 { text += " (تقدير أولي — القراءات ما تزال قليلة)" }
         return text

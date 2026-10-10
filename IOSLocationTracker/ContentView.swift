@@ -478,7 +478,7 @@ import Foundation
 public final class HealthAlertCenter {
     public static let shared = HealthAlertCenter()
 
-    /// يُستدعى عند وجوب تنبيه العامل على معصمه.
+    /// يُستدعى عند وجوب التنبيه على المعصم.
     /// اربطه بأمر الاهتزاز في iDO SDK من مكان واحد عند الإقلاع.
     public var buzzWatch: (() -> Void)?
 
@@ -527,7 +527,7 @@ public final class HealthAlertCenter {
     private var lastPredictiveAlert: Date?
     private let predictiveCooldown: TimeInterval = 20 * 60
 
-    /// نادِها بعد كل تنبؤ جديد. تُنبّه العامل قبل بلوغ الحد الحرج، لا بعده،
+    /// نادِها بعد كل تنبؤ جديد. تُنبّه قبل بلوغ الحد الحرج، لا بعده،
     /// بشرط خطر مرتفع بثقة كافية في تقييمين متتاليين.
     public func evaluateForecast(_ forecast: ForecastResult, now: Date = Date()) {
         guard let top = forecast.risks.first, top.level == .high, forecast.confidence >= 0.5,
@@ -544,7 +544,7 @@ public final class HealthAlertCenter {
 
         notify(
             title: "⚠️ تنبيه استباقي: \(top.kind?.title ?? "مؤشر حيوي")",
-            body: "\(top.why) خفّف الجهد الآن وخذ استراحة قصيرة، وتواصل مع المشرف إذا لم تتحسن."
+            body: "\(top.why) خفّف الجهد الآن وخذ استراحة قصيرة، وتواصل مع غرفة العمليات إذا لم تتحسن."
         )
     }
 
@@ -642,6 +642,7 @@ public struct HistoryScreen: View {
     @State private var selectedIndicator: IndicatorReading?
     @State private var showPastHistory: Bool = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ObservedObject private var sleepStore = SleepStore.shared
 
     public init(samples: [VitalSample],
                 employeeID: String,
@@ -667,7 +668,7 @@ public struct HistoryScreen: View {
     public var body: some View {
         // يُحسب التقييم والتنبؤ مرة واحدة لكل رسم بدل كل وصول للخاصية.
         let assessment = HealthEngine.assess(samples)
-        let forecast = HealthEngine.forecast(samples)
+        let forecast = HealthEngine.forecast(samples, fatigue: sleepStore.fatigue())
 
         return ZStack {
             SP.Color.ground.ignoresSafeArea()
@@ -703,6 +704,7 @@ public struct HistoryScreen: View {
                 } else {
                     ScoreCard(assessment: assessment)
                     ForecastCard(forecast: forecast, currentScore: assessment.score)
+                    SleepCard(records: sleepStore.records)
                     sectionTitle("المؤشرات الحيوية", trailing: "دقة التقييم \(Int((assessment.coverage * 100).rounded()))٪")
                     metricsGrid(assessment)
                     sectionTitle("سجل القراءات", trailing: nil)
@@ -830,7 +832,7 @@ public struct HistoryScreen: View {
     }
 
     private var disclaimer: some View {
-        Text("تقييم إرشادي لسلامة العامل الميداني، مبني على قراءات السوار فقط. ليس تشخيصاً طبياً ولا بديلاً عن مراجعة الطبيب.")
+        Text("تقييم إرشادي للسلامة، مبني على قراءات السوار فقط. ليس تشخيصاً طبياً ولا بديلاً عن مراجعة الطبيب.")
             .font(.system(size: 12))
             .lineSpacing(4)
             .foregroundColor(SP.Color.dim)
@@ -1045,6 +1047,164 @@ private struct ForecastCard: View {
             .padding(.vertical, 4)
             .background(color.opacity(0.12))
             .clipShape(Capsule())
+    }
+}
+
+// MARK: - بطاقة النوم
+
+/// تظهر لصاحب الجهاز فقط — لا تُرسل ولا تدخل التقرير المشترك.
+private struct SleepCard: View {
+    let records: [SleepRecord]
+
+    private static let time: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "ar_SA")
+        f.dateFormat = "h:mm a"
+        return f
+    }()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                Label {
+                    Text("النوم")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(SP.Color.text)
+                } icon: {
+                    Image(systemName: "moon.zzz.fill")
+                        .foregroundColor(SP.Color.measure)
+                }
+                Spacer()
+                if let night = records.first {
+                    let insight = SleepAnalyzer.insight(for: night, history: records)
+                    Text(insight.level.title)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(color(insight.level))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(color(insight.level).opacity(0.12))
+                        .clipShape(Capsule())
+                }
+            }
+
+            if let night = records.first {
+                content(night)
+            } else {
+                Text("لا توجد بيانات نوم بعد — ارتدِ السوار أثناء النوم وستظهر هنا بعد المزامنة.")
+                    .font(.system(size: 13))
+                    .foregroundColor(SP.Color.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(18)
+        .background(cardBackground(radius: 20, border: SP.Color.raised))
+    }
+
+    @ViewBuilder
+    private func content(_ night: SleepRecord) -> some View {
+        let insight = SleepAnalyzer.insight(for: night, history: records)
+
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(SleepAnalyzer.format(minutes: night.totalMinutes))
+                .font(.system(size: 26, weight: .bold, design: .monospaced))
+                .foregroundColor(SP.Color.text)
+            Text("الجودة \(insight.quality)/100")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(color(insight.level))
+            Spacer()
+        }
+
+        if let start = night.fellAsleep, let end = night.wokeUp {
+            Text("من \(Self.time.string(from: start)) إلى \(Self.time.string(from: end))")
+                .font(.system(size: 12))
+                .foregroundColor(SP.Color.muted)
+        }
+
+        stagesBar(night)
+
+        if records.count > 1 {
+            weekBars
+        }
+
+        Text(insight.message)
+            .font(.system(size: 13))
+            .lineSpacing(4)
+            .foregroundColor(SP.Color.text)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// توزيع مراحل النوم.
+    private func stagesBar(_ n: SleepRecord) -> some View {
+        let stages: [(String, Int, Color)] = [
+            ("عميق", n.deepMinutes, SP.Color.accent),
+            ("خفيف", n.lightMinutes, SP.Color.measure),
+            ("حالم", n.remMinutes, SP.Color.ok),
+            ("استيقاظ", n.awakeMinutes, SP.Color.caution)
+        ].filter { $0.1 > 0 }
+        let total = max(1, stages.map { $0.1 }.reduce(0, +))
+
+        return VStack(alignment: .leading, spacing: 8) {
+            if !stages.isEmpty {
+                GeometryReader { geo in
+                    HStack(spacing: 2) {
+                        ForEach(stages.indices, id: \.self) { i in
+                            Rectangle()
+                                .fill(stages[i].2)
+                                .frame(width: max(2, (geo.size.width - CGFloat(stages.count - 1) * 2)
+                                                  * CGFloat(stages[i].1) / CGFloat(total)))
+                        }
+                    }
+                }
+                .frame(height: 10)
+                .clipShape(Capsule())
+
+                HStack(spacing: 12) {
+                    ForEach(stages.indices, id: \.self) { i in
+                        HStack(spacing: 4) {
+                            Circle().fill(stages[i].2).frame(width: 6, height: 6)
+                            Text("\(stages[i].0) \(SleepAnalyzer.format(minutes: stages[i].1))")
+                                .font(.system(size: 11))
+                                .foregroundColor(SP.Color.muted)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// آخر ٧ ليالٍ — ارتفاع العمود بالمدة ولونه بالجودة، والخط المتقطع عند ٧ ساعات.
+    private var weekBars: some View {
+        let nights = Array(records.prefix(7).reversed())
+        let maxMinutes = Double(max(9 * 60, nights.map { $0.totalMinutes }.max() ?? 0))
+
+        return VStack(alignment: .leading, spacing: 6) {
+            Text("آخر \(nights.count) ليالٍ")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(SP.Color.muted)
+            HStack(alignment: .bottom, spacing: 8) {
+                ForEach(nights) { n in
+                    let level = SleepAnalyzer.insight(for: n, history: records).level
+                    VStack(spacing: 4) {
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(color(level))
+                            .frame(height: max(4, 60 * CGFloat(Double(n.totalMinutes) / maxMinutes)))
+                        Text(String(format: "%.1f", Double(n.totalMinutes) / 60))
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundColor(SP.Color.muted)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+            }
+            .frame(height: 76, alignment: .bottom)
+        }
+    }
+
+    private func color(_ level: SleepInsight.Level) -> Color {
+        switch level {
+        case .good: return SP.Color.ok
+        case .fair: return SP.Color.caution
+        case .poor: return SP.Color.danger
+        }
     }
 }
 
@@ -1538,13 +1698,13 @@ private func cardBackground(radius: CGFloat = 20, border: Color) -> some View {
 import Foundation
 
 public enum ReportPeriod: String, CaseIterable, Identifiable {
-    case shift, today, week, month
+    case eightHours, today, week, month
 
     public var id: String { rawValue }
 
     public var title: String {
         switch self {
-        case .shift: return "آخر وردية"
+        case .eightHours: return "آخر ٨ ساعات"
         case .today: return "آخر ٢٤ ساعة"
         case .week:  return "آخر ٧ أيام"
         case .month: return "آخر ٣٠ يوماً"
@@ -1553,7 +1713,7 @@ public enum ReportPeriod: String, CaseIterable, Identifiable {
 
     public var duration: TimeInterval {
         switch self {
-        case .shift: return 8 * 3600
+        case .eightHours: return 8 * 3600
         case .today: return 24 * 3600
         case .week:  return 7 * 24 * 3600
         case .month: return 30 * 24 * 3600
@@ -1694,7 +1854,7 @@ public enum HealthReportBuilder {
             return ReportDataQuality(received: 0, expected: 0, coverage: 0, gapCount: 0,
                                      longestGapMinutes: 0, firstReading: nil, lastReading: nil)
         }
-        // المتوقع يبدأ من أول قراءة فعلية — لا يُحاسَب العامل على وقت قبل بدء المراقبة.
+        // المتوقع يبدأ من أول قراءة فعلية — لا يُحتسب وقت قبل بدء المراقبة.
         let span = to.timeIntervalSince(max(from, first.sampleDate))
         let expected = max(1, Int(span / config.expectedInterval) + 1)
 
@@ -1745,7 +1905,7 @@ public enum HealthReportBuilder {
         }
         let o2 = count(.spo2, high: false)
         if o2.n > 0 {
-            out.append("انخفاض الأكسجين تحت الحد الحرج \(o2.n) مرة (أطولها \(o2.longest) دقيقة): تحقق من تهوية موقع العمل وثبات السوار على المعصم.")
+            out.append("انخفاض الأكسجين تحت الحد الحرج \(o2.n) مرة (أطولها \(o2.longest) دقيقة): تحقق من تهوية المكان وثبات السوار على المعصم.")
         }
         let heat = count(.bodyTemp, high: true)
         if heat.n > 0 {
@@ -1769,7 +1929,7 @@ public enum HealthReportBuilder {
         }
 
         if out.count == 1 && assessment.band.severity <= 1 {
-            out.append("المؤشرات ضمن النطاق في معظم الوقت — يُنصح بالاستمرار على نمط العمل والترطيب الحالي.")
+            out.append("المؤشرات ضمن النطاق في معظم الوقت — يُنصح بالاستمرار على نمط النشاط والترطيب الحالي.")
         }
         return out
     }
@@ -2140,34 +2300,36 @@ public enum HealthReportPDF {
         let plot = CGRect(x: rect.minX + 34, y: rect.minY + 22,
                           width: rect.width - 34, height: height - 36)
 
-        let lo = min(series.min() ?? 60, 55)
-        let hi = max(series.max() ?? 120, 125)
+        let hrBand = HealthThresholds.default.heartRate
+        let lo = min(series.min() ?? hrBand.normal.lowerBound, hrBand.normal.lowerBound - 5)
+        let hi = max(series.max() ?? hrBand.criticalHigh, hrBand.criticalHigh + 5)
         let span = max(hi - lo, 1)
 
         func yFor(_ v: Double) -> CGFloat {
             plot.maxY - CGFloat((v - lo) / span) * plot.height
         }
 
-        // النطاق الآمن ٦٠–١٠٠
+        // النطاق الطبيعي
         Ink.success.withAlphaComponent(0.10).setFill()
-        let bandRect = CGRect(x: plot.minX, y: yFor(100),
-                              width: plot.width, height: yFor(60) - yFor(100))
+        let bandRect = CGRect(x: plot.minX, y: yFor(hrBand.normal.upperBound),
+                              width: plot.width,
+                              height: yFor(hrBand.normal.lowerBound) - yFor(hrBand.normal.upperBound))
         UIBezierPath(rect: bandRect).fill()
 
-        // خط الإنذار ١٢٠
+        // خط الإنذار
         let alarm = UIBezierPath()
-        alarm.move(to: CGPoint(x: plot.minX, y: yFor(120)))
-        alarm.addLine(to: CGPoint(x: plot.maxX, y: yFor(120)))
+        alarm.move(to: CGPoint(x: plot.minX, y: yFor(hrBand.criticalHigh)))
+        alarm.addLine(to: CGPoint(x: plot.maxX, y: yFor(hrBand.criticalHigh)))
         alarm.setLineDash([3, 3], count: 2, phase: 0)
         alarm.lineWidth = 0.8
         Ink.danger.setStroke()
         alarm.stroke()
 
-        for value in [120.0, 100.0, 60.0] {
+        for value in [hrBand.criticalHigh, hrBand.normal.upperBound, hrBand.normal.lowerBound] {
             text("\(Int(value))",
                  CGRect(x: rect.minX, y: yFor(value) - 7, width: 28, height: 12),
                  font: .monospacedDigitSystemFont(ofSize: 8, weight: .regular),
-                 color: value == 120 ? Ink.danger : Ink.muted, align: .left)
+                 color: value == hrBand.criticalHigh ? Ink.danger : Ink.muted, align: .left)
         }
 
         // المنحنى — تخفيف الكثافة ليبقى مقروءاً
@@ -2380,7 +2542,7 @@ public enum HealthReportPDF {
 
         let room = Int((contentBottom - y - 16) / rowHeight)
         let shown = max(0, min(report.episodes.count, room))
-        let dateFormat: DateFormatter = report.period == .shift || report.period == .today
+        let dateFormat: DateFormatter = report.period == .eightHours || report.period == .today
             ? ReportFormat.time : ReportFormat.dayTime
         let mono = UIFont.monospacedDigitSystemFont(ofSize: 9.5, weight: .regular)
 
@@ -2468,7 +2630,7 @@ public enum HealthReportPDF {
         Ink.rule.setFill()
         UIBezierPath(rect: CGRect(x: margin, y: y, width: contentWidth, height: 0.7)).fill()
 
-        text("تقرير إرشادي لسلامة العامل الميداني، مبني على قراءات السوار. ليس تشخيصاً طبياً.",
+        text("تقرير إرشادي للسلامة، مبني على قراءات السوار. ليس تشخيصاً طبياً.",
              CGRect(x: margin, y: y + 7, width: contentWidth - 90, height: 12),
              font: .systemFont(ofSize: 8), color: Ink.muted)
 
@@ -2899,7 +3061,7 @@ public final class HealthLiveActivityManager {
         if #available(iOS 16.1, *) {
             guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
             
-            // إنهاء أي نشاط سابق لنفس العامل
+            // إنهاء أي نشاط سابق لنفس المعرّف
             endAll()
             
             let attributes = HealthActivityAttributes(employeeID: employeeID)

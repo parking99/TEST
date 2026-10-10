@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		A021 /* HealthEngineState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A121; };
 		A030 /* HealthEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A130; };
+		A031 /* SleepStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A131; };
 		A020 /* medical_alert.wav in Resources */ = {isa = PBXBuildFile; fileRef = A120; };
 		A001 /* IOSLocationTrackerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A101; };
 		A002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A102; };
@@ -65,6 +66,7 @@
 /* Begin PBXFileReference section */
 		A121 /* HealthEngineState.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = HealthEngineState.swift; sourceTree = "<group>"; };
 		A130 /* HealthEngine.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = HealthEngine.swift; sourceTree = "<group>"; };
+		A131 /* SleepStore.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = SleepStore.swift; sourceTree = "<group>"; };
 		A122 /* HealthEngineTests.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = HealthEngineTests.swift; sourceTree = "<group>"; };
 		A120 /* medical_alert.wav */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = audio.wav; path = medical_alert.wav; sourceTree = "<group>"; };
 		A101 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSLocationTrackerApp.swift; sourceTree = "<group>"; };
@@ -130,6 +132,7 @@
 				A102,
 				A121,
 				A130,
+				A131,
 				A122,
 				A103,
 				A106,
@@ -265,6 +268,7 @@
 				A002 /* ContentView.swift in Sources */,
 				A021 /* HealthEngineState.swift in Sources */,
 				A030 /* HealthEngine.swift in Sources */,
+				A031 /* SleepStore.swift in Sources */,
 				A003 /* LocationManager.swift in Sources */,
 				A004 /* IdoSmartManager.swift in Sources */,
 				A005 /* BloodPressureAlgorithm.swift in Sources */,

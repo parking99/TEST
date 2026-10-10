@@ -29,9 +29,9 @@
     <key>NSBluetoothPeripheralUsageDescription</key>
     <string>التطبيق يحتاج للاتصال بالسوار الذكي عبر البلوتوث.</string>
     <key>NSLocationWhenInUseUsageDescription</key>
-    <string>التطبيق يحتاج للموقع الجغرافي لإرسال إحداثيات العامل مع المؤشرات الحيوية إلى لوحة التحكم.</string>
+    <string>التطبيق يحتاج للموقع الجغرافي لإرسال إحداثيات موقعك مع المؤشرات الحيوية إلى لوحة التحكم.</string>
     <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-    <string>التطبيق يحتاج للموقع الجغرافي بالخلفية لضمان سلامة العامل وإرسال نداء الاستغاثة.</string>
+    <string>التطبيق يحتاج للموقع الجغرافي بالخلفية لضمان سلامتك وإرسال نداء الاستغاثة.</string>
     <key>UIBackgroundModes</key>
     <array>
         <string>bluetooth-central</string>

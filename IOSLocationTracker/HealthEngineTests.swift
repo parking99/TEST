@@ -31,7 +31,7 @@ final class HealthEngineTests: XCTestCase {
 
     // 7.1 التعافي المتناسب وتأثير الذاكرة
     func testMemoryAndProportionalRecovery() {
-        let samples = series(hr: Array(repeating: 130, count: 30) + Array(repeating: 75, count: 5))
+        let samples = series(hr: Array(repeating: 150, count: 30) + Array(repeating: 75, count: 5))
         let a = HealthEngine.assess(samples, now: now)
         XCTAssertNotEqual(a.band, .excellent, "خمس دقائق راحة لا تمحو نصف ساعة إجهاد")
     }
@@ -46,14 +46,14 @@ final class HealthEngineTests: XCTestCase {
 
     // 7.3 التعافي الكاذب
     func testFalseRecovery() {
-        let samples = series(hr: Array(repeating: 135, count: 10) + [75])
+        let samples = series(hr: Array(repeating: 150, count: 10) + [75])
         let a = HealthEngine.assess(samples, now: now)
         XCTAssertEqual(a.band, .danger)
     }
 
     // 7.4 الحدث الحاد الحقيقي (مسار الطوارئ)
     func testAcuteCriticalEvent() {
-        let samples = series(hr: Array(repeating: 75, count: 30) + Array(repeating: 135, count: 3))
+        let samples = series(hr: Array(repeating: 75, count: 30) + Array(repeating: 150, count: 3))
         let a = HealthEngine.assess(samples, now: now)
         XCTAssertEqual(a.band, .danger)
         XCTAssertLessThanOrEqual(a.score, 49)
@@ -61,7 +61,7 @@ final class HealthEngineTests: XCTestCase {
 
     // 7.5 سقف أسوأ مؤشر (البند 2.11)
     func testWorstIndicatorCeiling() {
-        let samples = series(hr: Array(repeating: 135, count: 5))
+        let samples = series(hr: Array(repeating: 150, count: 5))
         let a = HealthEngine.assess(samples, now: now)
         XCTAssertLessThanOrEqual(a.score, 49, "النبض خطر والباقي ممتاز — النتيجة خطر")
     }
@@ -87,7 +87,7 @@ final class HealthEngineTests: XCTestCase {
     }
 
     func testRisingHeartRateIsForecast() {
-        let f = HealthEngine.forecast(series(hr: Array(80...110)), now: now)
+        let f = HealthEngine.forecast(series(hr: Array(100...130)), now: now)
         XCTAssertEqual(f.risks.first?.kind, .heartRate)
         XCTAssertEqual(f.risks.first?.level, .high)
         XCTAssertNotNil(f.risks.first?.minutesToThreshold)
@@ -109,17 +109,17 @@ final class HealthEngineTests: XCTestCase {
     }
 
     func testAssessmentIsPure() {
-        let samples = series(hr: Array(repeating: 130, count: 10))
+        let samples = series(hr: Array(repeating: 150, count: 10))
         let first = HealthEngine.assess(samples, now: now).score
         for _ in 0..<20 { _ = HealthEngine.assess(samples, now: now) }
         XCTAssertEqual(HealthEngine.assess(samples, now: now).score, first, "إعادة الرسم لا تغيّر التقييم")
     }
 
     func testEpisodesNeedTwoConsecutiveReadings() {
-        let samples = series(hr: [75, 130, 75, 75, 131, 132, 133, 75])
+        let samples = series(hr: [75, 145, 75, 75, 141, 142, 143, 75])
         let eps = HealthEngine.episodes(samples)
         XCTAssertEqual(eps.count, 1)
-        XCTAssertEqual(eps.first?.peak, 133)
+        XCTAssertEqual(eps.first?.peak, 143)
         XCTAssertEqual(eps.first?.readings, 3)
     }
 }
