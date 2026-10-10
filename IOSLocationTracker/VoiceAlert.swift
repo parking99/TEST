@@ -68,7 +68,31 @@ public final class VoiceAlertManager: NSObject, ObservableObject, AVAudioPlayerD
     /// بعد «أنا بخير» لا يعود التنبيه قبل هذه المدة إلا إذا تحسّنت الحالة ثم ساءت.
     private let snooze: TimeInterval = 10 * 60
 
-    private override init() {}
+    private override init() {
+        super.init()
+        // مكالمة أو تطبيق آخر قد يقطع الصوت — نكمل التنبيه بعد انتهاء المقاطعة.
+        NotificationCenter.default.addObserver(self, selector: #selector(audioInterrupted(_:)),
+                                               name: AVAudioSession.interruptionNotification, object: nil)
+    }
+
+    @objc private func audioInterrupted(_ note: Notification) {
+        guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+              AVAudioSession.InterruptionType(rawValue: raw) == .ended else { return }
+        DispatchQueue.main.async {
+            if self.isActive { self.playOnce() }
+        }
+    }
+
+    /// تنبيه بقي «نشطاً» بعد انتهاء مدته (توقّف مؤقت التكرار في الخلفية) كان يمنع أي تنبيه جديد
+    /// حتى يُعاد تشغيل التطبيق — نُنهيه هنا.
+    public func recoverIfStale(now: Date = Date()) {
+        guard isActive else { return }
+        if let started = startedAt, now.timeIntervalSince(started) >= maxDuration {
+            stop()
+        } else if repeatTimer == nil || repeatTimer?.isValid == false {
+            scheduleRepeat()
+        }
+    }
 
     // MARK: الإعدادات
 
@@ -107,6 +131,7 @@ public final class VoiceAlertManager: NSObject, ObservableObject, AVAudioPlayerD
     /// يبدأ التنبيه إن لم يكن يعمل ولم يؤجَّل. يعيد true إن بدأ فعلاً.
     @discardableResult
     public func trigger(_ trigger: Trigger, detail: String? = nil, now: Date = Date()) -> Bool {
+        recoverIfStale(now: now)
         guard isEnabled, !isActive else { return false }
         if let until = snoozedUntil, now < until { return false }
         activeTrigger = trigger
@@ -124,6 +149,7 @@ public final class VoiceAlertManager: NSObject, ObservableObject, AVAudioPlayerD
     public func acknowledge() {
         snoozedUntil = Date().addingTimeInterval(snooze)
         stop()
+        IdoSmartManager.shared.stopBuzz()
     }
 
     /// تجربة الصوت من الإعدادات: مرة واحدة، بلا إشعار.
@@ -138,9 +164,12 @@ public final class VoiceAlertManager: NSObject, ObservableObject, AVAudioPlayerD
         postNotification()
         playOnce()
         HealthAlertCenter.shared.buzzWatch?()
+        scheduleRepeat()
+    }
 
+    private func scheduleRepeat() {
         repeatTimer?.invalidate()
-        repeatTimer = Timer.scheduledTimer(withTimeInterval: repeatInterval, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: repeatInterval, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             if let started = self.startedAt, Date().timeIntervalSince(started) >= self.maxDuration {
                 self.stop()
@@ -148,6 +177,9 @@ public final class VoiceAlertManager: NSObject, ObservableObject, AVAudioPlayerD
             }
             self.playOnce()
         }
+        // وضع .common يبقي المؤقت يعمل أثناء التمرير والتفاعل مع الشاشة.
+        RunLoop.main.add(timer, forMode: .common)
+        repeatTimer = timer
     }
 
     private func stop() {

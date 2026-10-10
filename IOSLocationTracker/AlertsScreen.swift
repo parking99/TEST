@@ -49,7 +49,10 @@ struct AlertsScreen: View {
                     .foregroundStyle(SP.Color.text)
                 Spacer()
                 Button {
-                    editing = Reminder(hour: 8, minute: 0, weekdays: Set(1...7), note: "", kind: .medication)
+                    // يبدأ من الدقيقة التالية للوقت الحالي.
+                    let next = Calendar.current.dateComponents([.hour, .minute], from: Date().addingTimeInterval(60))
+                    editing = Reminder(hour: next.hour ?? 8, minute: next.minute ?? 0,
+                                       weekdays: Set(1...7), note: "", kind: .medication)
                 } label: {
                     Label("إضافة", systemImage: "plus")
                         .font(SP.Font.ui(13, .semibold))
@@ -70,22 +73,14 @@ struct AlertsScreen: View {
                 }
             }
 
-            let status = ido.isConnected ? store.bandStatus : "السوار غير متصل — تُرسل المنبّهات عند الاتصال."
-            if !status.isEmpty {
-                Label(status, systemImage: ido.isConnected ? "applewatch.radiowaves.left.and.right" : "applewatch.slash")
+            if store.bandMode == .native && ido.isConnected {
+                Label("المنبّهات محفوظة في السوار", systemImage: "checkmark.circle.fill")
                     .font(SP.Font.ui(11.5))
-                    .foregroundStyle(SP.Color.muted)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .foregroundStyle(SP.Color.ok)
             }
 
-            if !store.bandDiagnostics.isEmpty && store.bandMode != .native {
-                Text(store.bandDiagnostics)
-                    .font(SP.Font.ui(10.5))
-                    .foregroundStyle(SP.Color.muted)
-            }
-
-            if store.bandMode == .appDriven {
-                HStack {
+            Divider().overlay(SP.Color.line)
+            HStack {
                     Text("مدة اهتزاز السوار")
                         .font(SP.Font.ui(13, .semibold))
                         .foregroundStyle(SP.Color.text)
@@ -97,24 +92,6 @@ struct AlertsScreen: View {
                     }
                     .pickerStyle(.menu)
                     .tint(SP.Color.accent)
-                }
-            }
-
-            if ido.isConnected {
-                HStack(spacing: 10) {
-                    Button {
-                        store.testBuzz()
-                    } label: {
-                        Label("اختبار اهتزاز السوار", systemImage: "waveform")
-                    }
-                    .buttonStyle(SPSecondaryButton())
-                    Button {
-                        store.syncToBand()
-                    } label: {
-                        Label("إعادة الإرسال", systemImage: "arrow.clockwise")
-                    }
-                    .buttonStyle(SPSecondaryButton())
-                }
             }
         }
         .spCard(padding: 16, radius: 16)
@@ -279,9 +256,12 @@ private struct ReminderEditor: View {
         NavigationView {
             Form {
                 Section {
+                    // العجلة بالترتيب الطبيعي (ساعة : دقيقة  ص/م) — الاتجاه العربي كان يقلب الأعمدة.
                     DatePicker("الوقت", selection: time, displayedComponents: .hourAndMinute)
                         .datePickerStyle(.wheel)
                         .labelsHidden()
+                        .environment(\.locale, Locale(identifier: "ar_SA@numbers=latn"))
+                        .environment(\.layoutDirection, .leftToRight)
                         .frame(maxWidth: .infinity)
                 }
 

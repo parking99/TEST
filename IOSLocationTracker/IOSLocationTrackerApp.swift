@@ -14,7 +14,9 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         IdoSmartManager.shared.initSdk()
         HealthAlertCenter.shared.requestAuthorization()
         // اهتزاز السوار مع التنبيهات الحرجة والسريعة.
-        HealthAlertCenter.shared.buzzWatch = { IdoSmartManager.shared.buzz() }
+        HealthAlertCenter.shared.buzzWatch = {
+            IdoSmartManager.shared.buzz(seconds: Double(AlertSettings.alarmBuzzSeconds))
+        }
         UNUserNotificationCenter.current().delegate = self
         UNUserNotificationCenter.current().setNotificationCategories([
             VoiceAlertManager.notificationCategoryDefinition,
@@ -36,10 +38,8 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
-        // أي تفاعل مع إشعار المنبّه يوقف اهتزاز السوار.
-        if response.notification.request.content.categoryIdentifier == ReminderStore.notificationCategory {
-            DispatchQueue.main.async { IdoSmartManager.shared.stopBuzz() }
-        }
+        // أي تفاعل مع إشعار (منبّه أو تنبيه صحي) يوقف اهتزاز السوار — المستخدم انتبه.
+        DispatchQueue.main.async { IdoSmartManager.shared.stopBuzz() }
         switch response.actionIdentifier {
         case VoiceAlertManager.okAction:
             DispatchQueue.main.async { VoiceAlertManager.shared.acknowledge() }
@@ -59,6 +59,9 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
     func applicationWillEnterForeground(_ application: UIApplication) {
         IdoSmartManager.shared.endBackgroundKeepAlive()
         ReminderStore.shared.expireOneTime()
+        // فتح التطبيق يعني أن المستخدم انتبه — يتوقف اهتزاز التنبيهات العادية.
+        if !VoiceAlertManager.shared.isActive { IdoSmartManager.shared.stopBuzz() }
+        VoiceAlertManager.shared.recoverIfStale()
         GoogleSheetSyncManager.shared.checkAndTriggerPeriodicSyncIfNeeded()
     }
 
