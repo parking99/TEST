@@ -78,7 +78,13 @@ struct AlertsScreen: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            if store.bandMode != .native {
+            if !store.bandDiagnostics.isEmpty && store.bandMode != .native {
+                Text(store.bandDiagnostics)
+                    .font(SP.Font.ui(10.5))
+                    .foregroundStyle(SP.Color.muted)
+            }
+
+            if store.bandMode == .appDriven {
                 HStack {
                     Text("مدة اهتزاز السوار")
                         .font(SP.Font.ui(13, .semibold))
