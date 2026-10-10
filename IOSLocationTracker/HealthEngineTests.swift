@@ -73,7 +73,18 @@ final class HealthEngineTests: XCTestCase {
             Sample(sampleDate: now.addingTimeInterval(Double(i) * 60), vHeartRate: 75, vSpo2: 97, bodyTemp: 36.6)
         }
         let a = HealthEngine.assess(samples, now: now.addingTimeInterval(180))
-        XCTAssertNotEqual(indicator(a, .spo2)?.band, .normal, "نزول الأكسجين يراكم إجهاداً لا يزول بثلاث دقائق")
+        XCTAssertLessThan(indicator(a, .spo2)?.score ?? 100, 100, "نزول الأكسجين يراكم إجهاداً يخفض الدرجة")
+        XCTAssertEqual(indicator(a, .spo2)?.band, .normal, "لكن قيمة ٩٧ تُعرض طبيعية لا حرجة")
+    }
+
+    func testNormalSpo2AfterDipIsNotCritical() {
+        var samples = series(hr: Array(repeating: 75, count: 30), spo2: 98)
+        for (i, o) in [89, 88, 89, 90, 99, 99, 99].enumerated() {
+            samples[23 + i].vSpo2 = o
+        }
+        let a = HealthEngine.assess(samples, now: now)
+        XCTAssertEqual(indicator(a, .spo2)?.value, 99)
+        XCTAssertNotEqual(indicator(a, .spo2)?.band, .critical, "أكسجين ٩٩ لا يُطلق تنبيه تجاوز الحد")
     }
 
     // MARK: - التنبؤ

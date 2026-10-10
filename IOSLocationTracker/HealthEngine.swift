@@ -287,7 +287,8 @@ public enum HealthEngine {
 
     // MARK: ثوابت الذاكرة التراكمية
     public static let hrLoadWeight = 1.0
-    public static let spo2LoadWeight = 5.0
+    /// قراءات الأكسجين المنخفضة العابرة شائعة من المعصم مع الحركة — تراكم معتدل.
+    public static let spo2LoadWeight = 2.0
     public static let tempLoadWeight = 2.0
     public static let recoveryRate = 0.3
     public static let acuteCriticalThresholdMinutes = 5
@@ -320,13 +321,19 @@ public enum HealthEngine {
         for kind in VitalKind.vitals {
             guard let v = current(kind, in: window) else { continue }
             let w = weight(kind, config)
+            let b = band(kind, config)
+            let valueBand = classify(v, b)
             // كل نقطة حمل تراكمي تخصم درجتين: لا يعود المؤشر أخضر مع إجهاد متراكم.
-            let s = max(0, subScore(v, band(kind, config)) - loads.value(for: kind) * 2.0)
+            // لكن القيمة الطبيعية لا تنزل تحت «انتباه» — أكسجين ٩٩ لا يُصنَّف حرجاً بسبب الذاكرة.
+            let floor: Double = valueBand == .normal ? 50 : 0
+            let s = max(floor, subScore(v, b) - loads.value(for: kind) * 2.0)
             let hb = HealthBand.from(score: Int(s))
             if hb.severity > worst.severity { worst = hb }
 
             indicators.append(IndicatorReading(
-                kind: kind, value: v, display: format(v, kind), band: vitalBand(score: s),
+                kind: kind, value: v, display: format(v, kind),
+                // التصنيف المعروض يتبع القيمة الطبيعية كما هي؛ الذاكرة تخفض الدرجة العامة فقط.
+                band: valueBand == .caution ? vitalBand(score: s) : valueBand,
                 score: s, weight: w,
                 trend: track(kind, window, now: now).map { trend($0, kind: kind, config: config, now: now) }
             ))
