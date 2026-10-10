@@ -1,11 +1,11 @@
 import UserNotifications
 //
 //  ContentView.swift
-//  SecurityPass â€” Ø§Ù„ÙˆØ§Ø¬Ù‡Ø© Ø§Ù„Ø¬Ø¯ÙŠØ¯Ø©
+//  SecurityPass — الواجهة الجديدة
 //
-//  ÙŠØ³ØªØ¨Ø¯Ù„ Ù‡Ø°Ø§ Ø§Ù„Ù…Ù„Ù ContentView Ø§Ù„Ù‚Ø¯ÙŠÙ… Ø¨Ø§Ù„ÙƒØ§Ù…Ù„. Ù„Ù… ÙŠÙÙ…Ø³Ù‘ Ø£ÙŠ Ù…Ø¯ÙŠØ±:
-//  IdoSmartManager Ùˆ LocationManager Ùˆ GoogleSheetSyncManager Ùˆ
-//  BloodPressureAlgorithm ØªÙØ³ØªØ¯Ø¹Ù‰ Ø¨Ù†ÙØ³ Ø£Ø³Ù…Ø§Ø¦Ù‡Ø§ ÙˆØªÙˆØ§Ù‚ÙŠØ¹Ù‡Ø§ Ø§Ù„Ø­Ø§Ù„ÙŠØ©.
+//  يستبدل هذا الملف ContentView القديم بالكامل. لم يُمسّ أي مدير:
+//  IdoSmartManager و LocationManager و GoogleSheetSyncManager و
+//  BloodPressureAlgorithm تُستدعى بنفس أسمائها وتواقيعها الحالية.
 //
 
 import SwiftUI
@@ -15,34 +15,33 @@ struct ContentView: View {
 
     @StateObject private var ido = IdoSmartManager.shared
     @StateObject private var location = LocationManager.shared
+    /// مراقبة السجل حتى تتحدّث شاشة السجل والتنبؤ فور وصول كل قراءة.
+    @ObservedObject private var syncManager = GoogleSheetSyncManager.shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// Ù†ÙØ³ Ù…ÙØªØ§Ø­ Ø§Ù„ØªØ®Ø²ÙŠÙ† Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù… ÙÙŠ Ø§Ù„Ø¨Ù†Ø§Ø¡ Ø§Ù„Ø­Ø§Ù„ÙŠ.
+    /// نفس مفتاح التخزين المستخدم في البناء الحالي.
     @AppStorage("WATCH_APP_DEFAULT") private var employeeId: String = "WATCH_001"
 
     @State private var tab: Tab = .status
+    /// اتجاه الانتقال الأخير: للأمام = نحو التبويبات التالية في الشريط.
+    @State private var movingForward = true
 
-    enum Tab: Hashable { case status, history, devices, sos, identity }
+    enum Tab: Int, Hashable { case status, history, devices, sos, identity }
 
     var body: some View {
         ZStack(alignment: .bottom) {
             SP.Color.ground.ignoresSafeArea()
 
-            Group {
-                switch tab {
-                case .status:
-                    StatusScreen(ido: ido, location: location, employeeId: employeeId) {
-                        tab = .devices
-                    }
-                case .history:  HistoryScreen(samples: GoogleSheetSyncManager.shared.history, employeeID: employeeId)
-                case .devices:  DevicesScreen(ido: ido)
-                case .sos:      SOSScreen(ido: ido, location: location, employeeId: employeeId)
-                case .identity: IdentityScreen(ido: ido, location: location, employeeId: $employeeId)
-                }
+            ZStack {
+                screen(for: tab)
+                    .id(tab)
+                    .transition(pageTransition)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .clipped()
             .padding(.bottom, 78)
 
-            SPTabBar(selection: $tab)
+            SPTabBar(selection: tab, onSelect: select)
         }
         .preferredColorScheme(.dark)
         .spArabic()
@@ -54,12 +53,53 @@ struct ContentView: View {
             }
         }
     }
+
+    @ViewBuilder
+    private func screen(for tab: Tab) -> some View {
+        switch tab {
+        case .status:
+            StatusScreen(ido: ido, location: location, employeeId: employeeId) {
+                select(.devices)
+            }
+        case .history:  HistoryScreen(samples: syncManager.history, employeeID: employeeId)
+        case .devices:  DevicesScreen(ido: ido)
+        case .sos:      SOSScreen(ido: ido, location: location, employeeId: employeeId)
+        case .identity: IdentityScreen(ido: ido, location: location, employeeId: $employeeId)
+        }
+    }
+
+    /// انتقال اتجاهي: الشاشة الجديدة تدخل من جهة التبويب المختار والقديمة تخرج من الجهة المقابلة.
+    /// مع «تقليل الحركة» يصبح تلاشياً فقط.
+    private var pageTransition: AnyTransition {
+        guard !reduceMotion else { return .opacity }
+        let insertion: Edge = movingForward ? .trailing : .leading
+        let removal: Edge = movingForward ? .leading : .trailing
+        return .asymmetric(
+            insertion: .move(edge: insertion).combined(with: .opacity),
+            removal: .move(edge: removal).combined(with: .opacity)
+        )
+    }
+
+    private func select(_ newTab: Tab) {
+        guard newTab != tab else { return }
+        UISelectionFeedbackGenerator().selectionChanged()
+        // يُضبط الاتجاه أولاً في دورة رسم مستقلة حتى تلتقط الشاشة الخارجة انتقالها الصحيح.
+        movingForward = newTab.rawValue > tab.rawValue
+        DispatchQueue.main.async {
+            withAnimation(reduceMotion ? .easeInOut(duration: 0.2)
+                                       : .spring(response: 0.38, dampingFraction: 0.9)) {
+                tab = newTab
+            }
+        }
+    }
 }
 
-// MARK: - Ø´Ø±ÙŠØ· Ø§Ù„ØªØ¨ÙˆÙŠØ¨
+// MARK: - شريط التبويب
 
 struct SPTabBar: View {
-    @Binding var selection: ContentView.Tab
+    let selection: ContentView.Tab
+    let onSelect: (ContentView.Tab) -> Void
+    @Namespace private var highlight
 
     var body: some View {
                 HStack(spacing: 4) {
@@ -79,19 +119,29 @@ struct SPTabBar: View {
     private func item(_ tab: ContentView.Tab, _ label: String,
                       _ icon: String, _ activeColor: Color) -> some View {
         let isActive = selection == tab
-        // SOS ÙŠØ¨Ù‚Ù‰ Ø£Ø­Ù…Ø± Ø­ØªÙ‰ ÙˆÙ‡Ùˆ ØºÙŠØ± Ù†Ø´Ø· â€” Ø¥Ù†Ù‡ ØªØ­Ø°ÙŠØ± Ù„Ø§ Ø¹Ù†ØµØ± ØªÙ†Ù‚Ù‘Ù„ Ø¹Ø§Ø¯ÙŠ.
+        // SOS يبقى أحمر حتى وهو غير نشط — إنه تحذير لا عنصر تنقّل عادي.
         let tint: Color = isActive ? activeColor
                         : (tab == .sos ? SP.Color.dangerText : SP.Color.muted)
 
-        return Button { selection = tab } label: {
+        return Button { onSelect(tab) } label: {
             VStack(spacing: 5) {
-                Image(systemName: icon).font(.system(size: 16, weight: .medium))
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .medium))
+                    .scaleEffect(isActive ? 1.12 : 1)
                 Text(label).font(SP.Font.ui(10.5, isActive || tab == .sos ? .semibold : .medium))
             }
             .foregroundStyle(tint)
             .frame(maxWidth: .infinity, minHeight: SP.Metric.minTarget + 2)
-            .background(isActive ? SP.Color.raised : Color.clear)
-            .clipShape(RoundedRectangle(cornerRadius: SP.Metric.controlRadius, style: .continuous))
+            .background {
+                // خلفية التبويب النشط تنزلق بين العناصر بدل أن تختفي وتظهر.
+                if isActive {
+                    RoundedRectangle(cornerRadius: SP.Metric.controlRadius, style: .continuous)
+                        .fill(SP.Color.raised)
+                        .matchedGeometryEffect(id: "activeTab", in: highlight)
+                }
+            }
+            .contentShape(Rectangle())
+            .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isActive)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
@@ -99,7 +149,7 @@ struct SPTabBar: View {
     }
 }
 
-// MARK: - Ø´Ø§Ø´Ø© Ø§Ù„Ø­Ø§Ù„Ø© (Ù…ØªØµÙ„ / Ù…Ù†Ù‚Ø·Ø¹)
+// MARK: - شاشة الحالة (متصل / منقطع)
 
 struct StatusScreen: View {
     @ObservedObject var ido: IdoSmartManager
@@ -124,22 +174,22 @@ struct StatusScreen: View {
 
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 11),
                                     GridItem(.flexible(), spacing: 11)], spacing: 11) {
-                    SPMetricCard(title: "نسبة الأكسجين", value: connected ? text(ido.currentSpo2) : "â€”",
+                    SPMetricCard(title: "نسبة الأكسجين", value: connected ? text(ido.currentSpo2) : "—",
                                  unit: "%", icon: "drop", iconColor: SP.Color.measure,
                                  isStale: !connected)
-                    SPMetricCard(title: "ضغط الدم", value: connected ? (ido.currentBloodPressure.isEmpty ? "â€”" : ido.currentBloodPressure) : "â€”",
+                    SPMetricCard(title: "ضغط الدم", value: connected ? (ido.currentBloodPressure.isEmpty ? "—" : ido.currentBloodPressure) : "—",
                                  icon: "gauge.medium", iconColor: SP.Color.accent,
                                  isStale: !connected)
-                    SPMetricCard(title: "حرارة الجسم", value: connected ? temperatureText : "â€”",
+                    SPMetricCard(title: "حرارة الجسم", value: connected ? temperatureText : "—",
                                  unit: "°م", icon: "thermometer.medium",
                                  iconColor: SP.Color.dangerText, isStale: !connected)
-                    SPMetricCard(title: "الخطوات", value: connected ? text(ido.currentSteps) : "â€”",
+                    SPMetricCard(title: "الخطوات", value: connected ? text(ido.currentSteps) : "—",
                                  icon: "figure.walk", iconColor: SP.Color.ok,
                                  isStale: !connected)
                     SPMetricCard(title: "السعرات", value: connected ? "\(Int(Double(ido.currentSteps) * 0.045))" : "--",
                                  unit: "سعرة", icon: "flame.fill", iconColor: .orange,
                                  isStale: !connected)
-                    SPMetricCard(title: "بطارية السوار", value: connected ? text(ido.currentBattery) : "â€”",
+                    SPMetricCard(title: "بطارية السوار", value: connected ? text(ido.currentBattery) : "—",
                                  unit: "%", icon: "battery.75", iconColor: SP.Color.muted,
                                  isStale: !connected)
                     SPMetricCard(title: "الموقع", value: locationText,
@@ -166,7 +216,7 @@ struct StatusScreen: View {
                 kicker: "منصة الرصد",
                 title: "القراءات الحيوية",
                 trailing: AnyView(
-                    SPStatusPill(text: fullyActive ? "متصل ونشط" : (connected ? "Ù…ØªØµÙ„ (Ø¬Ø§Ø±ÙŠ Ø§Ù„ØªÙ†Ø´ÙŠØ·)" : "ØºÙŠØ± Ù…ØªØµÙ„"),
+                    SPStatusPill(text: fullyActive ? "متصل ونشط" : (connected ? "متصل (جاري التنشيط)" : "غير متصل"),
                                  color: fullyActive ? SP.Color.ok : (connected ? SP.Color.measure : SP.Color.dangerText))
                 )
             )
@@ -174,7 +224,7 @@ struct StatusScreen: View {
         }
     }
 
-    // MARK: Ø£Ø¬Ø²Ø§Ø¡
+    // MARK: أجزاء
 
     private var disconnectedBanner: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -210,7 +260,7 @@ struct StatusScreen: View {
                 Image(systemName: "heart")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(connected ? SP.Color.accent : SP.Color.muted)
-                Text(connected ? "نبض القلب المباشر" : "Ù†Ø¨Ø¶ Ø§Ù„Ù‚Ù„Ø¨ â€” Ø¢Ø®Ø± Ù‚Ø±Ø§Ø¡Ø©")
+                Text(connected ? "نبض القلب المباشر" : "نبض القلب — آخر قراءة")
                     .font(SP.Font.ui(13, .semibold))
                     .foregroundStyle(connected ? SP.Color.text : SP.Color.muted)
                 Spacer(minLength: 0)
@@ -281,16 +331,16 @@ struct StatusScreen: View {
                     Circle()
                         .fill(syncManager.isAutoSyncActive ? SP.Color.ok : SP.Color.muted)
                         .frame(width: 7, height: 7)
-                    Text(syncManager.isAutoSyncActive ? "إرسال تلقائي (كل دقيقة)" : "Ø¢Ø®Ø± Ø¥Ø±Ø³Ø§Ù„ ÙˆØµÙ„")
+                    Text(syncManager.isAutoSyncActive ? "إرسال تلقائي (كل دقيقة)" : "آخر إرسال وصل")
                         .font(SP.Font.ui(11.5))
                         .foregroundStyle(SP.Color.muted)
                 }
-                Text(syncManager.lastSyncTime.map(Self.timeFormatter.string(from:)) ?? "â€”")
+                Text(syncManager.lastSyncTime.map(Self.timeFormatter.string(from:)) ?? "—")
                     .font(SP.Font.numeric(13))
                     .foregroundStyle(SP.Color.text)
             }
             Spacer(minLength: 0)
-            Button(syncManager.isSyncing ? "جاري الإرسال..." : "Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ø¢Ù†") {
+            Button(syncManager.isSyncing ? "جاري الإرسال..." : "إرسال الآن") {
                 send()
             }
             .font(SP.Font.ui(13, .semibold))
@@ -311,20 +361,20 @@ struct StatusScreen: View {
         )
     }
 
-    // MARK: Ù…Ù†Ø·Ù‚ Ø§Ù„Ø¹Ø±Ø¶ ÙÙ‚Ø· â€” Ø§Ù„Ø¥Ø±Ø³Ø§Ù„ ÙŠÙ…Ø± Ø¨Ù†ÙØ³ Ø§Ù„Ù…Ø¯ÙŠØ± Ø§Ù„Ø­Ø§Ù„ÙŠ
+    // MARK: منطق العرض فقط — الإرسال يمر بنفس المدير الحالي
 
     private func send() {
         syncManager.performAutoSync(force: true)
     }
 
-    private func text(_ value: Int) -> String { value > 0 ? "\(value)" : "â€”" }
+    private func text(_ value: Int) -> String { value > 0 ? "\(value)" : "—" }
 
     private var temperatureText: String {
-        ido.currentTemperature > 0 ? String(format: "%.1f", ido.currentTemperature) : "â€”"
+        ido.currentTemperature > 0 ? String(format: "%.1f", ido.currentTemperature) : "—"
     }
 
     private var locationText: String {
-        location.latitude == 0 && location.longitude == 0 ? "â€”" : "مُحدّث"
+        location.latitude == 0 && location.longitude == 0 ? "—" : "مُحدّث"
     }
 
     private static let timeFormatter: DateFormatter = {
@@ -414,231 +464,6 @@ struct MetricMini: View {
 
 
 //
-//  HealthEngine.swift
-//  SecurityPass
-//
-//  محرك التقييم الصحي والتنبؤ — يعمل بالكامل على الجهاز.
-//  لا يضيف أي حقل، ولا يغيّر قاعدة البيانات أو بروتوكول الإرسال.
-//  كل ما يحتاجه موجود أصلاً في سجلات المزامنة المخزّنة محلياً.
-//
-
-import Foundation
-
-// MARK: - مصدر البيانات
-
-/// البروتوكول الوحيد الذي يربط المحرك ببيانات التطبيق الحالية.
-/// اجعل `SyncHistoryRecord` يطابقه عبر الامتداد في آخر الملف.
-public protocol VitalSample {
-    var sampleDate: Date { get }
-    var vHeartRate: Int? { get }
-    var vSpo2: Int? { get }
-    var systolic: Int? { get }
-    var diastolic: Int? { get }
-    var bodyTemp: Double? { get }
-    var vLatitude: Double? { get }
-    var vLongitude: Double? { get }
-}
-
-// MARK: - الإعدادات (ملف ضبط واحد)
-
-public struct HealthThresholds {
-    /// نطاق مؤشر واحد: الطبيعي، والعتبتان الحرجتان التي تصل عندهما الدرجة إلى صفر.
-    public struct Band {
-        public var normal: ClosedRange<Double>
-        public var criticalLow: Double
-        public var criticalHigh: Double
-        public init(normal: ClosedRange<Double>, criticalLow: Double, criticalHigh: Double) {
-            self.normal = normal
-            self.criticalLow = criticalLow
-            self.criticalHigh = criticalHigh
-        }
-    }
-
-    public var heartRate = Band(normal: 60...100, criticalLow: 40, criticalHigh: 120)
-    public var spo2      = Band(normal: 95...100, criticalLow: 90, criticalHigh: 100)
-    public var bodyTemp  = Band(normal: 36.1...37.2, criticalLow: 35.0, criticalHigh: 38.0)
-    public var systolic  = Band(normal: 90...129, criticalLow: 85, criticalHigh: 140)
-    /// الانحراف المعياري للنبض داخل النافذة.
-    public var stability = Band(normal: 0...8, criticalLow: 0, criticalHigh: 15)
-
-    public var weightHeartRate: Double = 30
-    public var weightSpo2: Double      = 25
-    public var weightBodyTemp: Double  = 20
-    public var weightPressure: Double  = 15
-    public var weightStability: Double = 10
-
-    /// نافذة حساب الاتجاه والتنبؤ.
-    public var trendWindow: TimeInterval = 40 * 60
-    /// أفق الإسقاط.
-    public var forecastHorizon: TimeInterval = 60 * 60
-    /// نافذة العرض في الشاشة.
-    public var displayWindow: TimeInterval = 6 * 3600
-    /// الفاصل المتوقع بين قراءتين (الإرسال التلقائي كل دقيقة).
-    public var expectedInterval: TimeInterval = 60
-    /// تحت هذه التغطية لا يُعرض التنبؤ إطلاقاً.
-    public var minimumCoverageForForecast: Double = 0.40
-    /// مدة التجاوز المتواصل قبل اعتبار الحالة إنذاراً.
-    public var sustainedBreach: TimeInterval = 0
-
-    public static let `default` = HealthThresholds()
-    public init() {}
-}
-
-// MARK: - النتائج
-
-public enum VitalBand: String {
-    case normal
-    case caution
-    case critical
-    case unknown
-}
-
-public enum HealthBand: String, Codable {
-    case excellent   // ٨٥–١٠٠
-    case good        // ٧٠–٨٤
-    case attention   // ٥٠–٦٩
-    case danger      // ٠–٤٩
-
-    public var title: String {
-        switch self {
-        case .excellent: return "ممتاز"
-        case .good:      return "جيد"
-        case .attention: return "يحتاج انتباه"
-        case .danger:    return "خطر"
-        }
-    }
-
-    static func from(score: Int) -> HealthBand {
-        switch score {
-        case 85...:  return .excellent
-        case 70..<85: return .good
-        case 50..<70: return .attention
-        default:      return .danger
-        }
-    }
-}
-
-public enum VitalKind: String, CaseIterable {
-    case heartRate, spo2, bodyTemp, pressure, stability
-
-    public var title: String {
-        switch self {
-        case .heartRate: return "نبض القلب"
-        case .spo2:      return "الأكسجين"
-        case .bodyTemp:  return "حرارة الجسم"
-        case .pressure:  return "ضغط الدم"
-        case .stability: return "الاستقرار"
-        }
-    }
-
-    public var iconEmoji: String {
-        switch self {
-        case .heartRate: return "🫀"
-        case .spo2:      return "🫁"
-        case .bodyTemp:  return "🌡️"
-        case .pressure:  return "🩸"
-        case .stability: return "⏱️"
-        }
-    }
-
-    public var unit: String {
-        switch self {
-        case .heartRate: return "bpm"
-        case .spo2:      return "%"
-        case .bodyTemp:  return "°م"
-        case .pressure:  return ""
-        case .stability: return ""
-        }
-    }
-}
-
-public struct IndicatorReading {
-    public let kind: VitalKind
-    public let value: Double
-    public let display: String
-    public let band: VitalBand
-    public let score: Double      // ٠…١
-    public let weight: Double
-    public let trend: Trend?
-}
-
-public struct Trend {
-    /// وحدة المؤشر لكل دقيقة.
-    public let slopePerMinute: Double
-    /// ثبات الاتجاه ٠…١.
-    public let rSquared: Double
-    /// القيمة المتوقعة بعد أفق الإسقاط.
-    public let projected: Double
-    /// الدقائق المتبقية لبلوغ عتبة الإنذار، إن كان الاتجاه يقود إليها.
-    public let minutesToThreshold: Double?
-}
-
-public struct HealthAssessment {
-    public let score: Int
-    public let band: HealthBand
-    public let headline: String
-    public let indicators: [IndicatorReading]
-    /// تغطية القراءات ٠…١ — هي «دقة التقييم» المعروضة.
-    public let coverage: Double
-    public let sampleCount: Int
-    public let updatedAt: Date?
-
-    public var isEmpty: Bool { indicators.isEmpty }
-}
-
-public struct RiskForecast: Identifiable {
-    public enum Level: String {
-        case low, medium, high
-        public var title: String {
-            switch self {
-            case .low:    return "منخفض"
-            case .medium: return "متوسط"
-            case .high:   return "مرتفع"
-            }
-        }
-    }
-
-    public let id: String
-    public let name: String
-    public let probability: Double   // ٠…١
-    public let level: Level
-    public let why: String
-    public let tags: [String]
-}
-
-public struct ForecastResult {
-    public let risks: [RiskForecast]
-    public let projectedScore: Int?
-    public let coverage: Double
-    /// صحيح عندما تكون التغطية أقل من الحد الأدنى — لا يُعرض تنبؤ.
-    public let insufficientCoverage: Bool
-}
-
-// MARK: - المحرك
-
-
-// MARK: - الربط بسجلّك الحالي
-
-extension SyncHistoryRecord: VitalSample {
-    public var sampleDate: Date  { timestamp }
-    public var vHeartRate: Int?   { self.heartRate > 0 ? self.heartRate : nil }
-    public var vSpo2: Int?        { self.spo2 > 0 ? self.spo2 : nil }
-    public var systolic: Int?    { 
-        let parts = bloodPressure.split(separator: "/")
-        guard parts.count == 2, let sys = Int(parts[0]), sys > 0 else { return nil }
-        return sys
-    }
-    public var diastolic: Int?   { 
-        let parts = bloodPressure.split(separator: "/")
-        guard parts.count == 2, let dia = Int(parts[1]), dia > 0 else { return nil }
-        return dia
-    }
-    
-    public var vLatitude: Double? { self.latitude != 0.0 ? self.latitude : nil }
-    public var vLongitude: Double? { self.longitude != 0.0 ? self.longitude : nil }
-}
-
-//
 //  HealthAlerts.swift
 //  SecurityPass
 //
@@ -680,14 +505,47 @@ public final class HealthAlertCenter {
 
     /// نادِها بعد كل تقييم جديد — أي بعد كل قراءة تصل من السوار.
     public func evaluate(_ assessment: HealthAssessment, now: Date = Date()) {
-        for indicator in assessment.indicators {
+        criticalNow.removeAll()
+        // الاستقرار مؤشر مشتق من النبض — لا يستحق إنذاراً مستقلاً.
+        for indicator in assessment.indicators where indicator.kind != .stability {
             switch indicator.band {
             case .critical:
+                criticalNow.insert(indicator.kind)
                 handleBreach(indicator, now: now)
             case .normal, .caution, .unknown:
                 breachStartedAt[indicator.kind] = nil
             }
         }
+    }
+
+    // MARK: التنبيه الاستباقي
+
+    /// المؤشرات الحرجة في آخر تقييم — لها إنذارها الفوري، فلا يُكرَّر باستباقي.
+    private var criticalNow: Set<VitalKind> = []
+    /// الخطر المرتفع في التقييم السابق — يُشترط تكراره مرتين متتاليتين.
+    private var pendingRiskID: String?
+    private var lastPredictiveAlert: Date?
+    private let predictiveCooldown: TimeInterval = 20 * 60
+
+    /// نادِها بعد كل تنبؤ جديد. تُنبّه العامل قبل بلوغ الحد الحرج، لا بعده،
+    /// بشرط خطر مرتفع بثقة كافية في تقييمين متتاليين.
+    public func evaluateForecast(_ forecast: ForecastResult, now: Date = Date()) {
+        guard let top = forecast.risks.first, top.level == .high, forecast.confidence >= 0.5,
+              !(top.kind.map { criticalNow.contains($0) } ?? false) else {
+            pendingRiskID = nil
+            return
+        }
+        guard pendingRiskID == top.id else {
+            pendingRiskID = top.id
+            return
+        }
+        if let last = lastPredictiveAlert, now.timeIntervalSince(last) < predictiveCooldown { return }
+        lastPredictiveAlert = now
+
+        notify(
+            title: "⚠️ تنبيه استباقي: \(top.kind?.title ?? "مؤشر حيوي")",
+            body: "\(top.why) خفّف الجهد الآن وخذ استراحة قصيرة، وتواصل مع المشرف إذا لم تتحسن."
+        )
     }
 
     private func handleBreach(_ indicator: IndicatorReading, now: Date) {
@@ -767,7 +625,7 @@ private extension HealthBand {
 private extension RiskForecast.Level {
     var color: Color {
         switch self {
-        case .low: return SP.Color.ok
+        case .low: return SP.Color.accent
         case .medium: return SP.Color.caution
         case .high: return SP.Color.danger
         }
@@ -783,6 +641,7 @@ public struct HistoryScreen: View {
 
     @State private var selectedIndicator: IndicatorReading?
     @State private var showPastHistory: Bool = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     public init(samples: [VitalSample],
                 employeeID: String,
@@ -792,34 +651,49 @@ public struct HistoryScreen: View {
         self.onSelect = onSelect
     }
 
-    private var assessment: HealthAssessment { HealthEngine.assess(samples) }
-    private var forecast: ForecastResult { HealthEngine.forecast(samples) }
+    /// انتقال دفع (push): التفاصيل تدخل من جهة التقدّم والقائمة تنزاح قليلاً للخلف.
+    private var pushAnimation: Animation {
+        reduceMotion ? .easeInOut(duration: 0.2) : .spring(response: 0.42, dampingFraction: 0.88)
+    }
+
+    private var detailTransition: AnyTransition {
+        reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity)
+    }
+
+    private var listTransition: AnyTransition {
+        reduceMotion ? .opacity : .offset(x: -60).combined(with: .opacity)
+    }
 
     public var body: some View {
-        ZStack {
+        // يُحسب التقييم والتنبؤ مرة واحدة لكل رسم بدل كل وصول للخاصية.
+        let assessment = HealthEngine.assess(samples)
+        let forecast = HealthEngine.forecast(samples)
+
+        return ZStack {
             SP.Color.ground.ignoresSafeArea()
-            
+
             if let selected = selectedIndicator {
                 IndicatorDetailScreen(
                     indicator: selected,
                     samples: samples,
                     config: HealthThresholds.default,
                     onBack: {
-                        withAnimation(.spring()) {
+                        withAnimation(pushAnimation) {
                             selectedIndicator = nil
                         }
                     }
                 )
-                .transition(.move(edge: .leading))
+                .transition(detailTransition)
+                .zIndex(1)
             } else {
-                mainContent
-                    .transition(.move(edge: .trailing))
+                mainContent(assessment: assessment, forecast: forecast)
+                    .transition(listTransition)
             }
         }
         .environment(\.layoutDirection, .rightToLeft)
     }
 
-    private var mainContent: some View {
+    private func mainContent(assessment: HealthAssessment, forecast: ForecastResult) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 header
@@ -828,9 +702,9 @@ public struct HistoryScreen: View {
                     emptyState
                 } else {
                     ScoreCard(assessment: assessment)
-                    ForecastCard(forecast: forecast)
-                    sectionTitle("المؤشرات الحيوية", trailing: "مقارنة بآخر ساعة")
-                    metricsGrid
+                    ForecastCard(forecast: forecast, currentScore: assessment.score)
+                    sectionTitle("المؤشرات الحيوية", trailing: "دقة التقييم \(Int((assessment.coverage * 100).rounded()))٪")
+                    metricsGrid(assessment)
                     sectionTitle("سجل القراءات", trailing: nil)
                     readingsList
                 }
@@ -925,18 +799,19 @@ public struct HistoryScreen: View {
         .padding(.top, 8)
     }
 
-    private var metricsGrid: some View {
+    private func metricsGrid(_ assessment: HealthAssessment) -> some View {
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 14),
                             GridItem(.flexible(), spacing: 14)], spacing: 14) {
             ForEach(assessment.indicators.filter { $0.kind != .stability }, id: \.kind) { indicator in
                 Button {
-                    withAnimation(.spring()) {
+                    UISelectionFeedbackGenerator().selectionChanged()
+                    withAnimation(pushAnimation) {
                         selectedIndicator = indicator
                     }
                 } label: {
                     MetricCard(indicator: indicator, series: series(for: indicator.kind))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(SPPressableCard())
             }
         }
     }
@@ -997,6 +872,7 @@ private struct ScoreCard: View {
                     .stroke(assessment.band.color,
                             style: StrokeStyle(lineWidth: 8, lineCap: .round))
                     .rotationEffect(.degrees(-90))
+                    .animation(.easeOut(duration: 0.7), value: assessment.score)
                 
                 VStack(spacing: 0) {
                     Text("\(assessment.score)")
@@ -1020,7 +896,10 @@ private struct ScoreCard: View {
                         Text(assessment.band.title)
                             .font(.system(size: 18, weight: .bold))
                             .foregroundColor(SP.Color.text)
+                            .id(assessment.band)
+                            .transition(.opacity)
                     }
+                    .animation(.easeInOut(duration: 0.3), value: assessment.band)
                 }
                 
                 Text(assessment.headline)
@@ -1047,12 +926,13 @@ private struct ScoreCard: View {
 
 private struct ForecastCard: View {
     let forecast: ForecastResult
+    let currentScore: Int
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack {
+            HStack(spacing: 8) {
                 Label {
-                    Text("تنبؤ بالحالة")
+                    Text("تنبؤ الساعة القادمة")
                         .font(.system(size: 16, weight: .bold))
                         .foregroundColor(SP.Color.text)
                 } icon: {
@@ -1060,47 +940,111 @@ private struct ForecastCard: View {
                         .foregroundColor(SP.Color.caution)
                 }
                 Spacer()
+                if !forecast.insufficientCoverage {
+                    if forecast.isPreliminary {
+                        chip("أولي", color: SP.Color.caution)
+                    }
+                    chip("الثقة \(Int((forecast.confidence * 100).rounded()))٪", color: SP.Color.muted)
+                }
             }
 
             if forecast.insufficientCoverage {
-                Text("تغطية القراءات غير كافية لإصدار تنبؤ.")
+                Text("بانتظار قراءة حديثة من السوار — يبدأ التنبؤ فور وصولها.")
                     .font(.system(size: 14))
                     .foregroundColor(SP.Color.muted)
-            } else if let top = forecast.risks.first {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(alignment: .bottom) {
-                        Text(top.name)
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(top.level.color)
-                        Spacer()
-                        Text("احتمال \(Int(top.probability * 100))%")
-                            .font(.system(size: 15, weight: .bold, design: .monospaced))
-                            .foregroundColor(SP.Color.text)
-                    }
-                    
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            Capsule().fill(SP.Color.raised)
-                            Capsule().fill(LinearGradient(colors: [top.level.color.opacity(0.5), top.level.color], startPoint: .leading, endPoint: .trailing))
-                                .frame(width: geo.size.width * CGFloat(min(max(top.probability, 0), 1)))
-                        }
-                    }
-                    .frame(height: 6)
-
-                    Text(top.why)
-                        .font(.system(size: 13))
-                        .lineSpacing(4)
-                        .foregroundColor(SP.Color.muted)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
             } else {
-                Text("جميع المؤشرات مستقرة للساعة القادمة.")
-                    .font(.system(size: 14))
-                    .foregroundColor(SP.Color.ok)
+                if let projected = forecast.projectedScore {
+                    projectedRow(projected)
+                }
+
+                if forecast.risks.isEmpty {
+                    Label("جميع المؤشرات مستقرة للساعة القادمة.", systemImage: "checkmark.seal.fill")
+                        .font(.system(size: 14))
+                        .foregroundColor(SP.Color.ok)
+                } else {
+                    ForEach(forecast.risks.prefix(3)) { risk in
+                        riskRow(risk)
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+                }
             }
         }
         .padding(18)
-        .background(cardBackground(radius: 20, border: SP.Color.raised))
+        .background(cardBackground(radius: 20, border: borderColor))
+        .animation(.easeInOut(duration: 0.35), value: forecast.risks.map { $0.id + $0.level.rawValue })
+    }
+
+    private var borderColor: Color {
+        guard let top = forecast.risks.first, top.level != .low else { return SP.Color.raised }
+        return top.level.color.opacity(0.5)
+    }
+
+    private func projectedRow(_ projected: Int) -> some View {
+        let delta = projected - currentScore
+        let color: Color = delta <= -10 ? SP.Color.dangerText : (delta < 0 ? SP.Color.caution : SP.Color.ok)
+        return HStack(spacing: 6) {
+            Text("الدرجة المتوقعة بعد ساعة")
+                .font(.system(size: 13))
+                .foregroundColor(SP.Color.muted)
+            Spacer()
+            Text("\(projected)")
+                .font(.system(size: 17, weight: .bold, design: .monospaced))
+                .foregroundColor(SP.Color.text)
+            if delta != 0 {
+                Text(delta > 0 ? "▲ \(delta)" : "▼ \(-delta)")
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .foregroundColor(color)
+            }
+        }
+    }
+
+    private func riskRow(_ risk: RiskForecast) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(risk.name)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(risk.level.color)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Text("\(Int((risk.probability * 100).rounded()))٪")
+                    .font(.system(size: 15, weight: .bold, design: .monospaced))
+                    .foregroundColor(SP.Color.text)
+            }
+
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(SP.Color.raised)
+                    Capsule()
+                        .fill(LinearGradient(colors: [risk.level.color.opacity(0.5), risk.level.color],
+                                             startPoint: .leading, endPoint: .trailing))
+                        .frame(width: geo.size.width * CGFloat(min(max(risk.probability, 0), 1)))
+                        .animation(.easeOut(duration: 0.6), value: risk.probability)
+                }
+            }
+            .frame(height: 6)
+
+            Text(risk.why)
+                .font(.system(size: 13))
+                .lineSpacing(4)
+                .foregroundColor(SP.Color.muted)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let eta = risk.minutesToThreshold, eta <= Double(forecast.horizonMinutes) {
+                Label("متوقع خلال ~\(max(1, Int(eta.rounded()))) دقيقة", systemImage: "clock.badge.exclamationmark")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(risk.level.color)
+            }
+        }
+    }
+
+    private func chip(_ text: String, color: Color) -> some View {
+        Text(text)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundColor(color)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(color.opacity(0.12))
+            .clipShape(Capsule())
     }
 }
 
@@ -1141,8 +1085,8 @@ private struct MetricCard: View {
             HStack(spacing: 8) {
                 StatusPill(text: indicator.band.title, color: indicator.band.color)
                 Spacer()
-                if let trend = indicator.trend, abs(trend.slopePerMinute) > 0.001 {
-                    Text(trend.slopePerMinute > 0 ? "صاعد ↗" : "هابط ↘")
+                if let trend = indicator.trend {
+                    Text(trend.directionTitle)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(SP.Color.muted)
                 }
@@ -1225,7 +1169,7 @@ private struct IndicatorDetailScreen: View {
                                 .foregroundColor(SP.Color.text)
                             Spacer()
                             if let trend = indicator.trend {
-                                Text(trend.slopePerMinute > 0 ? "صاعد ↗" : "هابط ↘")
+                                Text(trend.directionTitle)
                                     .font(.system(size: 13))
                                     .foregroundColor(SP.Color.muted)
                             }
@@ -1233,6 +1177,25 @@ private struct IndicatorDetailScreen: View {
                         
                         TrendChart(values: series, color: indicator.band.color)
                             .frame(height: 160)
+
+                        if let trend = indicator.trend, indicator.kind != .stability {
+                            Divider().overlay(SP.Color.raised)
+                            HStack {
+                                Text("المتوقع بعد ساعة")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(SP.Color.muted)
+                                Spacer()
+                                Text("\(HealthEngine.format(trend.projected, indicator.kind)) \(indicator.kind.unit)")
+                                    .font(.system(size: 15, weight: .bold, design: .monospaced))
+                                    .foregroundColor(SP.Color.text)
+                            }
+                            if let eta = trend.minutesToThreshold, eta <= 60 {
+                                Label("قد يبلغ الحد الحرج خلال ~\(max(1, Int(eta.rounded()))) دقيقة",
+                                      systemImage: "clock.badge.exclamationmark")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(SP.Color.caution)
+                            }
+                        }
                     }
                     .padding(20)
                     .background(cardBackground(border: SP.Color.raised))
@@ -1244,7 +1207,7 @@ private struct IndicatorDetailScreen: View {
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundColor(SP.Color.text)
                         
-                        RangeBar(kind: indicator.kind, config: config)
+                        RangeBar(kind: indicator.kind, value: indicator.value, config: config)
                     }
                     .padding(20)
                     .background(cardBackground(border: SP.Color.raised))
@@ -1260,7 +1223,7 @@ private struct IndicatorDetailScreen: View {
                                 Text("توصية")
                                     .font(.system(size: 15, weight: .bold))
                                     .foregroundColor(indicator.band.color)
-                                Text("\(indicator.kind.title) أعلى من المعدل الطبيعي. يرجى أخذ قسط من الراحة والتواصل مع غرفة العمليات إذا استمر الارتفاع.")
+                                Text(recommendation)
                                     .font(.system(size: 13))
                                     .lineSpacing(4)
                                     .foregroundColor(SP.Color.text)
@@ -1278,6 +1241,28 @@ private struct IndicatorDetailScreen: View {
             }
         }
         .background(SP.Color.ground.ignoresSafeArea())
+    }
+
+    /// التوصية تتبع جهة الانحراف فعلاً — النص القديم كان يقول «أعلى» حتى عند الانخفاض.
+    private var recommendation: String {
+        let b = HealthEngine.band(indicator.kind, config)
+        let isLow = indicator.value < b.normal.lowerBound
+        switch indicator.kind {
+        case .heartRate:
+            return isLow
+                ? "النبض أقل من المعدل الطبيعي. إذا شعرت بدوار أو إعياء توقف واجلس وتواصل مع غرفة العمليات."
+                : "النبض أعلى من المعدل الطبيعي. خفّف الجهد وخذ قسطاً من الراحة واشرب الماء، وتواصل مع غرفة العمليات إذا استمر الارتفاع."
+        case .spo2:
+            return "الأكسجين أقل من الطبيعي. انتقل إلى مكان جيد التهوية وتنفّس بعمق وتأكد من ثبات السوار على المعصم، وتواصل مع غرفة العمليات إذا لم يتحسن."
+        case .bodyTemp:
+            return isLow
+                ? "حرارة الجسم منخفضة. ابتعد عن البرودة وارتدِ ملابس دافئة."
+                : "حرارة الجسم مرتفعة. انتقل إلى الظل أو مكان بارد واشرب الماء وخفّف الملابس الثقيلة."
+        case .pressure:
+            return "قيمة الضغط خارج النطاق (قد تكون تقديرية من النبض). خذ قسطاً من الراحة وأعد القياس، وتواصل مع غرفة العمليات إذا استمرت."
+        case .stability:
+            return "النبض متذبذب أكثر من المعتاد. خفّف الحركة لدقائق حتى يستقر."
+        }
     }
 
     private var series: [Double] {
@@ -1366,22 +1351,78 @@ private struct TrendChart: View {
 
 // MARK: - Range Bar
 
+/// شريط النطاقات بالقيم الحقيقية من الإعدادات مع مؤشر للقيمة الحالية.
 private struct RangeBar: View {
     let kind: VitalKind
+    let value: Double
     let config: HealthThresholds
 
+    private var band: HealthThresholds.Band { HealthEngine.band(kind, config) }
+
+    /// مجال العرض: من تحت الحد الحرج الأدنى بقليل إلى فوق الأعلى بقليل.
+    private var domain: ClosedRange<Double> {
+        let b = band
+        let pad = max((b.criticalHigh - b.criticalLow) * 0.12, 0.5)
+        let lo = min(b.criticalLow - pad, value)
+        let hi = max(b.criticalHigh + (kind == .spo2 ? 0 : pad), value)
+        return lo...max(hi, lo + 1)
+    }
+
     var body: some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            HStack(spacing: 2) {
-                Rectangle().fill(SP.Color.caution).frame(width: w * 0.25)
-                Rectangle().fill(SP.Color.ok).frame(width: w * 0.50)
-                Rectangle().fill(SP.Color.caution).frame(width: w * 0.10)
-                Rectangle().fill(SP.Color.danger).frame(width: w * 0.15)
+        VStack(alignment: .leading, spacing: 8) {
+            GeometryReader { geo in
+                let w = geo.size.width
+                ZStack(alignment: .leading) {
+                    ForEach(segments.indices, id: \.self) { i in
+                        let s = segments[i]
+                        Rectangle()
+                            .fill(s.color)
+                            .frame(width: max(0, x(s.to, w) - x(s.from, w)), height: 12)
+                            .offset(x: x(s.from, w))
+                    }
+                    Capsule()
+                        .fill(SP.Color.text)
+                        .frame(width: 4, height: 22)
+                        .offset(x: min(max(x(value, w) - 2, 0), w - 4))
+                        .shadow(color: Color.black.opacity(0.4), radius: 3)
+                }
+                .frame(height: 22)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
             }
-            .cornerRadius(6)
+            .frame(height: 22)
+            .environment(\.layoutDirection, .leftToRight)
+
+            HStack {
+                Text(HealthEngine.format(band.criticalLow, kind))
+                Spacer()
+                Text("الطبيعي \(HealthEngine.format(band.normal.lowerBound, kind))–\(HealthEngine.format(band.normal.upperBound, kind))")
+                Spacer()
+                Text(kind == .spo2 ? "" : HealthEngine.format(band.criticalHigh, kind))
+            }
+            .font(.system(size: 11, design: .monospaced))
+            .foregroundColor(SP.Color.muted)
+            .environment(\.layoutDirection, .leftToRight)
         }
-        .frame(height: 12)
+    }
+
+    private struct Segment { let from: Double; let to: Double; let color: Color }
+
+    private var segments: [Segment] {
+        let b = band
+        let d = domain
+        return [
+            Segment(from: d.lowerBound, to: b.criticalLow, color: SP.Color.danger),
+            Segment(from: b.criticalLow, to: b.normal.lowerBound, color: SP.Color.caution),
+            Segment(from: b.normal.lowerBound, to: b.normal.upperBound, color: SP.Color.ok),
+            Segment(from: b.normal.upperBound, to: b.criticalHigh, color: SP.Color.caution),
+            Segment(from: b.criticalHigh, to: d.upperBound, color: SP.Color.danger)
+        ].filter { $0.to > $0.from }
+    }
+
+    private func x(_ v: Double, _ width: CGFloat) -> CGFloat {
+        let d = domain
+        let r = (min(max(v, d.lowerBound), d.upperBound) - d.lowerBound) / (d.upperBound - d.lowerBound)
+        return CGFloat(r) * width
     }
 }
 
@@ -1426,8 +1467,7 @@ private struct ReadingRow: View {
 
     private var dotColor: Color {
         guard sample.vHeartRate != nil || sample.vSpo2 != nil else { return SP.Color.muted }
-        let single = HealthEngine.assess([sample], now: sample.sampleDate)
-        return single.band.color
+        return HealthEngine.quickBand(sample).color
     }
 }
 
@@ -1498,13 +1538,14 @@ private func cardBackground(radius: CGFloat = 20, border: Color) -> some View {
 import Foundation
 
 public enum ReportPeriod: String, CaseIterable, Identifiable {
-    case today, week, month
+    case shift, today, week, month
 
     public var id: String { rawValue }
 
     public var title: String {
         switch self {
-        case .today: return "اليوم"
+        case .shift: return "آخر وردية"
+        case .today: return "آخر ٢٤ ساعة"
         case .week:  return "آخر ٧ أيام"
         case .month: return "آخر ٣٠ يوماً"
         }
@@ -1512,6 +1553,7 @@ public enum ReportPeriod: String, CaseIterable, Identifiable {
 
     public var duration: TimeInterval {
         switch self {
+        case .shift: return 8 * 3600
         case .today: return 24 * 3600
         case .week:  return 7 * 24 * 3600
         case .month: return 30 * 24 * 3600
@@ -1528,6 +1570,22 @@ public struct IndicatorSummary {
     public let band: VitalBand
     /// نسبة الوقت ضمن النطاق الطبيعي ٠…١.
     public let inRange: Double
+    /// نسبة الوقت خارج الطبيعي دون الحد الحرج ٠…١.
+    public var cautionShare: Double = 0
+    /// نسبة الوقت عند الحد الحرج أو بعده ٠…١.
+    public var criticalShare: Double = 0
+}
+
+/// جودة البيانات: كم قراءة وصلت مقارنة بالمتوقع، وأين انقطع السوار.
+public struct ReportDataQuality {
+    public let received: Int
+    public let expected: Int
+    public let coverage: Double
+    /// عدد الانقطاعات التي تتجاوز ٥ دقائق.
+    public let gapCount: Int
+    public let longestGapMinutes: Int
+    public let firstReading: Date?
+    public let lastReading: Date?
 }
 
 public struct DailyStat {
@@ -1566,6 +1624,13 @@ public struct HealthReport {
     public let readingsTotal: Int
     /// سلسلة النبض للرسم البياني.
     public let heartRateSeries: [(date: Date, value: Double)]
+    /// نوبات التجاوز الحرج المتواصلة، الأحدث أولاً.
+    public var episodes: [HealthEpisode] = []
+    /// تنبؤ الساعة القادمة — فقط إن كانت آخر قراءة حديثة عند إنشاء التقرير.
+    public var forecast: ForecastResult? = nil
+    public var quality: ReportDataQuality? = nil
+    /// أبرز النتائج والتوصيات المولّدة من البيانات.
+    public var findings: [String] = []
 
     public var isEmpty: Bool { readings.isEmpty }
     public var isTruncated: Bool { readingsTotal > readings.count }
@@ -1587,23 +1652,126 @@ public enum HealthReportBuilder {
             .filter { $0.sampleDate >= from && $0.sampleDate <= now }
             .sorted { $0.sampleDate < $1.sampleDate }
 
-        let assessment = HealthEngine.assess(window, now: now, config: config)
+        // تقييم الفترة كاملة، لا آخر ست ساعات منها فقط.
+        let assessment = HealthEngine.assessPeriod(window, from: from, to: now, config: config)
+        let summary = summaries(window, config: config)
+        let episodes = HealthEngine.episodes(window, config: config)
+        let quality = dataQuality(window, from: from, to: now, config: config)
 
-        return HealthReport(
+        var forecast: ForecastResult?
+        if let last = window.last, now.timeIntervalSince(last.sampleDate) <= 30 * 60 {
+            forecast = HealthEngine.forecast(samples, now: now, config: config)
+        }
+
+        var report = HealthReport(
             employeeID: employeeID,
             period: period,
             from: from,
             to: now,
             generatedAt: now,
             assessment: assessment,
-            summary: summaries(window, config: config),
+            summary: summary,
             daily: dailyStats(window, config: config),
             readings: window.reversed().prefix(maxReadings).map { line(for: $0, config: config) },
             readingsTotal: window.count,
             heartRateSeries: window.compactMap { s in
-                s.vHeartRate.map { (date: s.sampleDate, value: Double($0)) }
+                HealthEngine.value(s, .heartRate).map { (date: s.sampleDate, value: $0) }
             }
         )
+        report.episodes = episodes
+        report.forecast = forecast
+        report.quality = quality
+        report.findings = findings(summary: summary, episodes: episodes, quality: quality,
+                                   forecast: forecast, assessment: assessment)
+        return report
+    }
+
+    // MARK: جودة البيانات
+
+    private static func dataQuality(_ window: [VitalSample], from: Date, to: Date,
+                                    config: HealthThresholds) -> ReportDataQuality {
+        guard let first = window.first, let last = window.last else {
+            return ReportDataQuality(received: 0, expected: 0, coverage: 0, gapCount: 0,
+                                     longestGapMinutes: 0, firstReading: nil, lastReading: nil)
+        }
+        // المتوقع يبدأ من أول قراءة فعلية — لا يُحاسَب العامل على وقت قبل بدء المراقبة.
+        let span = to.timeIntervalSince(max(from, first.sampleDate))
+        let expected = max(1, Int(span / config.expectedInterval) + 1)
+
+        var gaps = 0
+        var longest: TimeInterval = 0
+        for (a, b) in zip(window, window.dropFirst()) {
+            let gap = b.sampleDate.timeIntervalSince(a.sampleDate)
+            if gap > 5 * 60 { gaps += 1 }
+            longest = max(longest, gap)
+        }
+        let tail = to.timeIntervalSince(last.sampleDate)
+        if tail > 5 * 60 { gaps += 1; longest = max(longest, tail) }
+
+        return ReportDataQuality(
+            received: window.count,
+            expected: expected,
+            coverage: min(1, Double(window.count) / Double(expected)),
+            gapCount: gaps,
+            longestGapMinutes: Int((longest / 60).rounded()),
+            firstReading: first.sampleDate,
+            lastReading: last.sampleDate
+        )
+    }
+
+    // MARK: النتائج والتوصيات
+
+    private static func findings(summary: [IndicatorSummary], episodes: [HealthEpisode],
+                                 quality: ReportDataQuality, forecast: ForecastResult?,
+                                 assessment: HealthAssessment) -> [String] {
+        var out: [String] = []
+
+        func count(_ kind: VitalKind, high: Bool) -> (n: Int, longest: Int) {
+            let list = episodes.filter { $0.kind == kind && $0.isHigh == high }
+            return (list.count, list.map { $0.durationMinutes }.max() ?? 0)
+        }
+
+        if episodes.isEmpty {
+            out.append("لم تُسجَّل أي نوبة تجاوز حرج متواصلة خلال الفترة.")
+        }
+
+        let hrHigh = count(.heartRate, high: true)
+        if hrHigh.n > 0 {
+            out.append("ارتفاع النبض فوق الحد الحرج \(hrHigh.n) مرة (أطولها \(hrHigh.longest) دقيقة): راجع فترات الجهد البدني ووزّع الاستراحات عليها.")
+        }
+        let hrLow = count(.heartRate, high: false)
+        if hrLow.n > 0 {
+            out.append("انخفاض النبض تحت الحد الحرج \(hrLow.n) مرة: يستحق متابعة طبية إن تكرر مع دوار أو إعياء.")
+        }
+        let o2 = count(.spo2, high: false)
+        if o2.n > 0 {
+            out.append("انخفاض الأكسجين تحت الحد الحرج \(o2.n) مرة (أطولها \(o2.longest) دقيقة): تحقق من تهوية موقع العمل وثبات السوار على المعصم.")
+        }
+        let heat = count(.bodyTemp, high: true)
+        if heat.n > 0 {
+            out.append("ارتفاع حرارة الجسم \(heat.n) مرة: راجع التعرض للحرارة وجدول شرب الماء والاستراحة في الظل.")
+        }
+        let bp = count(.pressure, high: true)
+        if bp.n > 0 {
+            out.append("ارتفاع الضغط \(bp.n) مرة (القيم قد تكون تقديرية من النبض): يُنصح بقياس مؤكد بجهاز ضغط.")
+        }
+
+        for s in summary where s.kind != .pressure && s.inRange < 0.7 {
+            out.append("\(s.kind.title) خارج النطاق الطبيعي \(Int(((1 - s.inRange) * 100).rounded()))٪ من وقت المراقبة.")
+        }
+
+        if let f = forecast, let top = f.risks.first, top.level != .low {
+            out.append("تنبؤ الساعة القادمة: \(top.name) بنسبة \(Int((top.probability * 100).rounded()))٪ (ثقة \(Int((f.confidence * 100).rounded()))٪).")
+        }
+
+        if quality.received > 0 && quality.coverage < 0.6 {
+            out.append("وصل \(Int((quality.coverage * 100).rounded()))٪ فقط من القراءات المتوقعة (أطول انقطاع \(quality.longestGapMinutes) دقيقة) — الانقطاع يقلل دقة التقييم؛ تأكد من شحن السوار وبقائه متصلاً.")
+        }
+
+        if out.count == 1 && assessment.band.severity <= 1 {
+            out.append("المؤشرات ضمن النطاق في معظم الوقت — يُنصح بالاستمرار على نمط العمل والترطيب الحالي.")
+        }
+        return out
     }
 
     // MARK: ملخص كل مؤشر
@@ -1618,7 +1786,9 @@ public enum HealthReportBuilder {
                   let lo = values.min(), let hi = values.max() else { return }
 
             let avg = values.reduce(0, +) / Double(values.count)
-            let inRange = Double(values.filter { band.normal.contains($0) }.count) / Double(values.count)
+            let n = Double(values.count)
+            let inRange = Double(values.filter { band.normal.contains($0) }.count) / n
+            let critical = Double(values.filter { HealthEngine.classify($0, band) == .critical }.count) / n
 
             func f(_ v: Double) -> String {
                 decimals == 0 ? "\(Int(v.rounded()))" : String(format: "%.\(decimals)f", v)
@@ -1627,14 +1797,16 @@ public enum HealthReportBuilder {
             out.append(IndicatorSummary(
                 kind: kind, latest: f(latest), minimum: f(lo),
                 average: f(avg), maximum: f(hi),
-                band: HealthEngine.classify(latest, band), inRange: inRange
+                band: HealthEngine.classify(latest, band), inRange: inRange,
+                cautionShare: max(0, 1 - inRange - critical), criticalShare: critical
             ))
         }
 
-        add(.heartRate, config.heartRate, window.compactMap { $0.vHeartRate.map(Double.init) })
-        add(.spo2, config.spo2, window.compactMap { $0.vSpo2.map(Double.init) })
-        add(.bodyTemp, config.bodyTemp, window.compactMap { $0.bodyTemp }, decimals: 1)
-        add(.pressure, config.systolic, window.compactMap { $0.systolic.map(Double.init) })
+        // القيم المستحيلة (حرارة ٠ عند عدم القياس) تُستبعد بدل أن تُحسب انخفاضاً حرجاً.
+        add(.heartRate, config.heartRate, window.compactMap { HealthEngine.value($0, .heartRate) })
+        add(.spo2, config.spo2, window.compactMap { HealthEngine.value($0, .spo2) })
+        add(.bodyTemp, config.bodyTemp, window.compactMap { HealthEngine.value($0, .bodyTemp) }, decimals: 1)
+        add(.pressure, config.systolic, window.compactMap { HealthEngine.value($0, .pressure) })
 
         return out
     }
@@ -1649,13 +1821,11 @@ public enum HealthReportBuilder {
         return groups.keys.sorted(by: >).map { day in
             let items = groups[day] ?? []
             let endOfDay = day.addingTimeInterval(24 * 3600 - 1)
-            var dayConfig = config
-            dayConfig.displayWindow = 24 * 3600
-            let assessment = HealthEngine.assess(items, now: endOfDay, config: dayConfig)
+            let assessment = HealthEngine.assessPeriod(items, from: day, to: endOfDay, config: config)
 
-            let hr = items.compactMap { $0.vHeartRate.map(Double.init) }
-            let spo2 = items.compactMap { $0.vSpo2.map(Double.init) }
-            let temp = items.compactMap { $0.bodyTemp }
+            let hr = items.compactMap { HealthEngine.value($0, .heartRate) }
+            let spo2 = items.compactMap { HealthEngine.value($0, .spo2) }
+            let temp = items.compactMap { HealthEngine.value($0, .bodyTemp) }
 
             return DailyStat(
                 day: day,
@@ -1673,8 +1843,7 @@ public enum HealthReportBuilder {
     // MARK: سطر قراءة
 
     private static func line(for s: VitalSample, config: HealthThresholds) -> ReadingLine {
-        let single = HealthEngine.assess([s], now: s.sampleDate, config: config)
-        return ReadingLine(
+        ReadingLine(
             date: s.sampleDate,
             heartRate: s.vHeartRate.map { "\($0)" } ?? "—",
             spo2: s.vSpo2.map { "\($0)%" } ?? "—",
@@ -1683,8 +1852,8 @@ public enum HealthReportBuilder {
                 guard let dia = s.diastolic else { return "\(sys)" }
                 return "\(sys)/\(dia)"
             }(),
-            temperature: s.bodyTemp.map { String(format: "%.1f", $0) } ?? "—",
-            band: single.band
+            temperature: HealthEngine.value(s, .bodyTemp).map { String(format: "%.1f", $0) } ?? "—",
+            band: HealthEngine.quickBand(s, config: config)
         )
     }
 }
@@ -1712,6 +1881,13 @@ public enum ReportFormat {
         let f = DateFormatter()
         f.locale = locale
         f.dateFormat = "EEEE d MMMM yyyy — hh:mm a"
+        return f
+    }()
+
+    public static let dayTime: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = locale
+        f.dateFormat = "d MMM hh:mm a"
         return f
     }()
 
@@ -1793,7 +1969,7 @@ public enum HealthReportPDF {
         let readingPages = report.readings.isEmpty
             ? 0
             : Int(ceil(Double(report.readings.count) / Double(rowsPerPage)))
-        let totalPages = 1 + readingPages
+        let totalPages = 2 + readingPages
 
         let info: [String: Any] = [
             kCGPDFContextTitle as String: "التقرير الصحي — \(report.employeeID)",
@@ -1811,10 +1987,14 @@ public enum HealthReportPDF {
             drawSummaryPage(report)
             drawFooter(page: 1, of: totalPages, report: report)
 
+            ctx.beginPage()
+            drawAnalysisPage(report)
+            drawFooter(page: 2, of: totalPages, report: report)
+
             for index in 0..<readingPages {
                 ctx.beginPage()
                 drawReadingsPage(report, pageIndex: index)
-                drawFooter(page: index + 2, of: totalPages, report: report)
+                drawFooter(page: index + 3, of: totalPages, report: report)
             }
         }
         try data.write(to: url)
@@ -2064,6 +2244,183 @@ public enum HealthReportPDF {
         return y
     }
 
+    // MARK: صفحة التحليل والتوصيات
+
+    /// أسفل المساحة المتاحة قبل التذييل.
+    private static var contentBottom: CGFloat { page.height - margin - 34 }
+
+    private static func drawAnalysisPage(_ report: HealthReport) {
+        Ink.accent.setFill()
+        UIBezierPath(rect: CGRect(x: 0, y: 0, width: page.width, height: 6)).fill()
+
+        var y: CGFloat = margin + 6
+        text("التحليل والتوصيات", CGRect(x: margin, y: y, width: contentWidth, height: 26),
+             font: .systemFont(ofSize: 20, weight: .bold), color: Ink.text)
+        y += 30
+
+        y = drawFindings(report, top: y)
+        y = drawZoneBars(report, top: y + 14)
+        y = drawForecastBlock(report, top: y + 14)
+        y = drawQuality(report, top: y + 14)
+        _ = drawEpisodes(report, top: y + 14)
+    }
+
+    private static func sectionTitle(_ title: String, top: CGFloat) -> CGFloat {
+        text(title, CGRect(x: margin, y: top, width: contentWidth, height: 16),
+             font: .systemFont(ofSize: 12, weight: .semibold), color: Ink.text)
+        return top + 20
+    }
+
+    private static func drawFindings(_ report: HealthReport, top: CGFloat) -> CGFloat {
+        guard !report.findings.isEmpty else { return top }
+        var y = sectionTitle("أبرز النتائج", top: top)
+
+        for finding in report.findings.prefix(7) {
+            let font = UIFont.systemFont(ofSize: 10)
+            let width = contentWidth - 14
+            let height = min(textHeight(finding, width: width, font: font), 40)
+            Ink.accent.setFill()
+            UIBezierPath(ovalIn: CGRect(x: page.width - margin - 5, y: y + 5, width: 4, height: 4)).fill()
+            text(finding, CGRect(x: margin, y: y, width: width, height: height),
+                 font: font, color: Ink.text, lines: 3)
+            y += height + 5
+        }
+        return y
+    }
+
+    /// توزيع وقت كل مؤشر على النطاقات: طبيعي / خارج النطاق / حرج.
+    private static func drawZoneBars(_ report: HealthReport, top: CGFloat) -> CGFloat {
+        guard !report.summary.isEmpty else { return top }
+        var y = sectionTitle("توزيع الوقت على النطاقات", top: top)
+
+        let labelWidth: CGFloat = 80
+        let captionWidth: CGFloat = 170
+        let barWidth = contentWidth - labelWidth - captionWidth - 16
+
+        for s in report.summary {
+            text(s.kind.title, CGRect(x: page.width - margin - labelWidth, y: y, width: labelWidth, height: 14),
+                 font: .systemFont(ofSize: 9.5, weight: .medium), color: Ink.text)
+
+            // الشريط يُملأ من اليمين (اتجاه القراءة).
+            var x = page.width - margin - labelWidth - 8
+            let parts: [(Double, UIColor)] = [(s.inRange, Ink.success), (s.cautionShare, Ink.caution), (s.criticalShare, Ink.danger)]
+            Ink.rule.setFill()
+            UIBezierPath(roundedRect: CGRect(x: x - barWidth, y: y + 3, width: barWidth, height: 8), cornerRadius: 4).fill()
+            for (share, color) in parts where share > 0 {
+                let w = barWidth * CGFloat(share)
+                color.setFill()
+                UIBezierPath(rect: CGRect(x: x - w, y: y + 3, width: w, height: 8)).fill()
+                x -= w
+            }
+
+            text("طبيعي \(pct(s.inRange)) · خارج \(pct(s.cautionShare)) · حرج \(pct(s.criticalShare))",
+                 CGRect(x: margin, y: y, width: captionWidth, height: 14),
+                 font: .systemFont(ofSize: 8.5), color: Ink.muted)
+            y += 18
+        }
+        return y
+    }
+
+    private static func drawForecastBlock(_ report: HealthReport, top: CGFloat) -> CGFloat {
+        guard let f = report.forecast, !f.insufficientCoverage else { return top }
+        var y = sectionTitle("تنبؤ الساعة القادمة · الثقة \(pct(f.confidence))\(f.isPreliminary ? " · أولي" : "")", top: top)
+
+        if let projected = f.projectedScore {
+            text("الدرجة المتوقعة بعد ساعة: \(projected) من ١٠٠ (الحالية للفترة \(report.assessment.score))",
+                 CGRect(x: margin, y: y, width: contentWidth, height: 14),
+                 font: .systemFont(ofSize: 10), color: Ink.text)
+            y += 16
+        }
+
+        let risks = f.risks.filter { $0.level != .low }.prefix(3)
+        if risks.isEmpty {
+            text("لا يُتوقع تجاوز أي حد حرج خلال الساعة القادمة.",
+                 CGRect(x: margin, y: y, width: contentWidth, height: 14),
+                 font: .systemFont(ofSize: 10), color: Ink.success)
+            return y + 16
+        }
+        for r in risks {
+            let color = r.level == .high ? Ink.danger : Ink.caution
+            text("\(r.name) — \(pct(r.probability))",
+                 CGRect(x: margin, y: y, width: contentWidth, height: 14),
+                 font: .systemFont(ofSize: 10, weight: .semibold), color: color)
+            y += 14
+            let h = min(textHeight(r.why, width: contentWidth, font: .systemFont(ofSize: 9)), 26)
+            text(r.why, CGRect(x: margin, y: y, width: contentWidth, height: h),
+                 font: .systemFont(ofSize: 9), color: Ink.muted, lines: 2)
+            y += h + 4
+        }
+        return y
+    }
+
+    private static func drawQuality(_ report: HealthReport, top: CGFloat) -> CGFloat {
+        guard let q = report.quality, q.received > 0 else { return top }
+        var y = sectionTitle("جودة البيانات", top: top)
+        let line = "وصلت \(q.received) قراءة من \(q.expected) متوقعة (\(pct(q.coverage))) · انقطاعات أطول من ٥ دقائق: \(q.gapCount) · أطول انقطاع: \(q.longestGapMinutes) دقيقة"
+        text(line, CGRect(x: margin, y: y, width: contentWidth, height: 26),
+             font: .systemFont(ofSize: 9.5), color: Ink.text, lines: 2)
+        y += 28
+        text("قيم الضغط قد تكون تقديرية محسوبة من النبض وليست قياساً مباشراً.",
+             CGRect(x: margin, y: y, width: contentWidth, height: 12),
+             font: .systemFont(ofSize: 8.5), color: Ink.muted)
+        return y + 14
+    }
+
+    private static func drawEpisodes(_ report: HealthReport, top: CGFloat) -> CGFloat {
+        var y = sectionTitle("نوبات التجاوز الحرج", top: top)
+        guard !report.episodes.isEmpty else {
+            text("لا توجد نوبات تجاوز حرج متواصلة خلال الفترة.",
+                 CGRect(x: margin, y: y, width: contentWidth, height: 14),
+                 font: .systemFont(ofSize: 10), color: Ink.success)
+            return y + 16
+        }
+
+        let widths: [CGFloat] = [120, 90, 70, 80, 70, 85]
+        y = drawTableHeader(["البداية", "المؤشر", "الاتجاه", "أسوأ قيمة", "المدة", "القراءات"], widths: widths, top: y)
+
+        let room = Int((contentBottom - y - 16) / rowHeight)
+        let shown = max(0, min(report.episodes.count, room))
+        let dateFormat: DateFormatter = report.period == .shift || report.period == .today
+            ? ReportFormat.time : ReportFormat.dayTime
+        let mono = UIFont.monospacedDigitSystemFont(ofSize: 9.5, weight: .regular)
+
+        for e in report.episodes.prefix(shown) {
+            let cells = columns(widths: widths, top: y)
+            text(dateFormat.string(from: e.start), cells[0], font: mono, color: Ink.text)
+            text(e.kind.title, cells[1], font: .systemFont(ofSize: 9.5), color: Ink.text)
+            text(e.isHigh ? "ارتفاع" : "انخفاض", cells[2], font: .systemFont(ofSize: 9.5, weight: .medium), color: Ink.danger)
+            text("\(HealthEngine.format(e.peak, e.kind)) \(e.kind.unit)", cells[3], font: mono, color: Ink.text)
+            text("\(e.durationMinutes) د", cells[4], font: mono, color: Ink.text)
+            text("\(e.readings)", cells[5], font: mono, color: Ink.muted)
+            y += rowHeight
+            rule(at: y)
+        }
+        if report.episodes.count > shown {
+            text("و\(report.episodes.count - shown) نوبة أخرى — راجع سجل القراءات",
+                 CGRect(x: margin, y: y + 4, width: contentWidth, height: 12),
+                 font: .systemFont(ofSize: 9), color: Ink.muted)
+            y += 16
+        }
+        return y
+    }
+
+    private static func pct(_ v: Double) -> String {
+        "\(Int((min(max(v, 0), 1) * 100).rounded()))٪"
+    }
+
+    private static func textHeight(_ string: String, width: CGFloat, font: UIFont) -> CGFloat {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.baseWritingDirection = .rightToLeft
+        paragraph.lineSpacing = 2
+        let rect = (string as NSString).boundingRect(
+            with: CGSize(width: width, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font, .paragraphStyle: paragraph],
+            context: nil
+        )
+        return ceil(rect.height) + 2
+    }
+
     // MARK: صفحات سجل القراءات
 
     private static func drawReadingsPage(_ report: HealthReport, pageIndex: Int) {
@@ -2201,7 +2558,7 @@ public struct ShareHealthReportView: View {
     public let samples: [VitalSample]
     public let employeeID: String
 
-    @State private var period: ReportPeriod = .week
+    @State private var period: ReportPeriod = .today
     @State private var report: HealthReport?
     @State private var isPreparing = true
     @State private var isBuilding = false
@@ -2220,14 +2577,23 @@ public struct ShareHealthReportView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     periodPicker
 
-                    if isPreparing {
-                        placeholder("جارٍ تجهيز الملخص…")
-                    } else if let report = report, !report.isEmpty {
-                        summaryCard(report)
-                        contentsCard(report)
-                    } else {
-                        placeholder("لا توجد قراءات في هذه الفترة.")
+                    Group {
+                        if isPreparing {
+                            placeholder("جارٍ تجهيز الملخص…")
+                                .transition(.opacity)
+                        } else if let report = report, !report.isEmpty {
+                            VStack(alignment: .leading, spacing: 18) {
+                                summaryCard(report)
+                                findingsCard(report)
+                                contentsCard(report)
+                            }
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        } else {
+                            placeholder("لا توجد قراءات في هذه الفترة.")
+                                .transition(.opacity)
+                        }
                     }
+                    .animation(.easeInOut(duration: 0.3), value: isPreparing)
 
                     shareButton
 
@@ -2300,6 +2666,39 @@ public struct ShareHealthReportView: View {
                 .lineSpacing(4)
                 .foregroundColor(SP.Color.muted)
                 .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 14) {
+                stat("القراءات", "\(report.readingsTotal)")
+                stat("نوبات حرجة", "\(report.episodes.count)")
+                if let q = report.quality {
+                    stat("اكتمال البيانات", "\(Int((q.coverage * 100).rounded()))٪")
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(cardShape)
+    }
+
+    private func stat(_ title: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(value)
+                .font(.system(size: 15, weight: .semibold, design: .monospaced))
+                .foregroundColor(SP.Color.text)
+            Text(title)
+                .font(.system(size: 11))
+                .foregroundColor(SP.Color.muted)
+        }
+    }
+
+    private func findingsCard(_ report: HealthReport) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("أبرز النتائج")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(SP.Color.text)
+            ForEach(Array(report.findings.prefix(4).enumerated()), id: \.offset) { _, finding in
+                bullet(finding)
+            }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -2312,10 +2711,15 @@ public struct ShareHealthReportView: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(SP.Color.text)
 
-            bullet("التقييم العام وتفسيره")
+            bullet("التقييم العام للفترة كاملة وتفسيره")
             bullet("ملخص كل مؤشر: الأدنى والمتوسط والأعلى ونسبة الوقت ضمن النطاق")
             bullet("مسار نبض القلب خلال الفترة")
             bullet("ملخص يومي لـ \(report.daily.count) يوم")
+            bullet("صفحة تحليل: أبرز النتائج والتوصيات، توزيع الوقت على النطاقات، ونوبات التجاوز الحرج")
+            if report.forecast != nil {
+                bullet("تنبؤ الساعة القادمة مع درجة الثقة")
+            }
+            bullet("جودة البيانات والانقطاعات")
             bullet(report.isTruncated
                    ? "سجل بأحدث \(report.readings.count) قراءة من أصل \(report.readingsTotal)"
                    : "سجل كامل بـ \(report.readings.count) قراءة")
@@ -2386,8 +2790,10 @@ public struct ShareHealthReportView: View {
             let built = HealthReportBuilder.build(from: snapshot, employeeID: id, period: selected)
             DispatchQueue.main.async {
                 guard selected == period else { return }   // تجاهل نتيجة فترة قديمة
-                report = built
-                isPreparing = false
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    report = built
+                    isPreparing = false
+                }
             }
         }
     }
@@ -2408,7 +2814,7 @@ public struct ShareHealthReportView: View {
             } catch {
                 DispatchQueue.main.async {
                     isBuilding = false
-                    failure = "Error: " + error.localizedDescription
+                    failure = "تعذّر إنشاء الملف: " + error.localizedDescription
                 }
             }
         }
@@ -2548,356 +2954,6 @@ public final class HealthLiveActivityManager {
 
 
 
-public enum HealthEngine {
-    
-    // MARK: - Constants (الثوابت والمعاملات - البند 6)
-    public static let hrLoadWeight = 1.0
-    public static let spo2LoadWeight = 5.0
-    public static let tempLoadWeight = 2.0
-    public static let recoveryRate = 0.3
-    public static let acuteCriticalThresholdMinutes = 5
-    
-    public static func assess(
-        _ samples: [VitalSample],
-        now: Date = Date(),
-        config: HealthThresholds = .default
-    ) -> HealthAssessment {
-        let window = samples
-            .filter { now.timeIntervalSince($0.sampleDate) <= config.displayWindow }
-            .sorted { $0.sampleDate < $1.sampleDate }
-        
-        let cvg = coverage(window, span: config.displayWindow, config: config)
-        
-        guard let latest = window.last else {
-            return HealthAssessment(
-                score: 0, band: .danger,
-                headline: "لا توجد بيانات كافية",
-                indicators: [], coverage: 0, sampleCount: 0, updatedAt: nil
-            )
-        }
-        
-        // --- 1. تحديث الذاكرة التراكمية (Leaky Bucket) ---
-        let stateManager = HealthEngineStateManager.shared
-        var state = stateManager.state
-        
-        // حساب الوقت المنقضي منذ آخر قراءة (بحد أقصى 5 دقائق لمنع القفزات عند الانقطاع)
-        var elapsedMins = 1.0 
-        if state.lastUpdate != .distantPast {
-            elapsedMins = max(0.01, min(5.0, latest.sampleDate.timeIntervalSince(state.lastUpdate) / 60.0))
-        }
-        
-        // تحديث حمل النبض
-        if let hr = latest.vHeartRate.map(Double.init) {
-            if config.heartRate.criticalHigh <= hr || config.heartRate.criticalLow >= hr {
-                state.hrLoad = min(100, state.hrLoad + HealthEngine.hrLoadWeight * elapsedMins * 2.0) // الإرهاق يتراكم بسرعة مضاعفة
-            } else if config.heartRate.normal.contains(hr) {
-                state.hrLoad = max(0, state.hrLoad - HealthEngine.recoveryRate * elapsedMins)
-            }
-        }
-        
-        // تحديث حمل الأكسجين (الخطر بالنزول)
-        if let spo2 = latest.vSpo2.map(Double.init) {
-            if config.spo2.criticalLow >= spo2 {
-                state.spo2Load = min(100, state.spo2Load + HealthEngine.spo2LoadWeight * elapsedMins * 2.0)
-            } else if config.spo2.normal.contains(spo2) {
-                state.spo2Load = max(0, state.spo2Load - HealthEngine.recoveryRate * elapsedMins)
-            }
-        }
-        
-        // تحديث حمل الحرارة
-        if let temp = latest.bodyTemp {
-            if config.bodyTemp.criticalHigh <= temp {
-                state.tempLoad = min(100, state.tempLoad + HealthEngine.tempLoadWeight * elapsedMins * 2.0)
-            } else if config.bodyTemp.normal.contains(temp) {
-                state.tempLoad = max(0, state.tempLoad - HealthEngine.recoveryRate * elapsedMins)
-            }
-        }
-        
-        state.lastUpdate = latest.sampleDate
-        stateManager.state = state
-        stateManager.save()
-        
-        // --- 2. حساب الدرجات بناءً على القيمة اللحظية + الذاكرة ---
-        var baseScore = 0.0
-        var totalWeight = 0.0
-        var indicators: [IndicatorReading] = []
-        var worstState: HealthBand = .excellent
-        
-        func add(_ val: Double?, _ kind: VitalKind, _ bandCfg: HealthThresholds.Band, _ wt: Double, _ disp: String, _ load: Double) {
-            guard let v = val else { return }
-            var s = subScore(v, bandCfg)
-            
-            // دمج الذاكرة التراكمية في درجة المؤشر الفردي (لا يعود المؤشر أخضر إذا كان هناك حمل متراكم)
-            // كل نقطة حمل تخصم درجتين من المؤشر للتأكيد على الذاكرة
-            s = max(0, s - load * 2.0)
-            
-            // تصنيف اللون الجديد بناءً على الدرجة بعد خصم الذاكرة
-            var b: VitalBand = .normal
-            if s < 50 { b = .critical }
-            else if s < 80 { b = .caution }
-            else { b = .normal }
-            
-            let currentWorst = HealthBand.from(score: Int(s))
-            if currentWorst.rawValue > worstState.rawValue {
-                worstState = currentWorst
-            }
-            
-            indicators.append(IndicatorReading(
-                kind: kind, value: v, display: disp, band: b, score: s, weight: wt, trend: trend(for: kind, in: window)
-            ))
-            baseScore += s * wt
-            totalWeight += wt
-        }
-        
-        add(latest.vHeartRate.map(Double.init), .heartRate, config.heartRate, config.weightHeartRate, "\(latest.vHeartRate!)", state.hrLoad)
-        add(latest.vSpo2.map(Double.init), .spo2, config.spo2, config.weightSpo2, "\(latest.vSpo2!)", state.spo2Load)
-        if let temp = latest.bodyTemp {
-            add(temp, .bodyTemp, config.bodyTemp, config.weightBodyTemp, String(format: "%.1f", temp), state.tempLoad)
-        }
-        if let sys = latest.systolic {
-            add(Double(sys), .pressure, config.systolic, config.weightPressure, "\(sys)", 0) // الضغط ليس له ذاكرة تراكمية
-        }
-        
-        let stabilityScore: Double = HealthEngine.isStationary(window) ? 100 : max(0, 100 - (100 - baseScore / max(totalWeight, 1)))
-        indicators.append(IndicatorReading(
-            kind: .stability, value: stabilityScore, display: stabilityScore > 80 ? "مستقر" : "متحرك",
-            band: stabilityScore > 50 ? .normal : .caution, score: stabilityScore, weight: config.weightStability, trend: nil
-        ))
-        baseScore += stabilityScore * config.weightStability
-        totalWeight += config.weightStability
-        
-        var finalScore = totalWeight > 0 ? Int(baseScore / totalWeight) : 0
-        
-        // 3. السقف المطلق لأسوأ حالة (حتى بعد المتوسط)
-        if worstState == .danger && finalScore > 49 { finalScore = 49 } 
-        else if worstState == .attention && finalScore > 74 { finalScore = 74 }
-        
-        let band = HealthBand.from(score: finalScore)
-        let headline = generateHeadline(band: band, indicators: indicators)
-        
-        return HealthAssessment(
-            score: finalScore, band: band, headline: headline,
-            indicators: indicators, coverage: cvg, sampleCount: window.count, updatedAt: latest.sampleDate
-        )
-    }
-    
-    public static func forecast(_ samples: [VitalSample], now: Date = Date(), config: HealthThresholds = .default) -> ForecastResult {
-        let window = samples
-            .filter { now.timeIntervalSince($0.sampleDate) <= config.displayWindow }
-            .sorted { $0.sampleDate < $1.sampleDate }
-            
-        let cvg = coverage(window, span: config.displayWindow, config: config)
-        if cvg < 0.25 {
-            return ForecastResult(risks: [], projectedScore: nil, coverage: cvg, insufficientCoverage: true)
-        }
-        
-        let trendWindow = window.filter { now.timeIntervalSince($0.sampleDate) <= config.trendWindow }
-        guard let latest = window.last else {
-            return ForecastResult(risks: [], projectedScore: nil, coverage: cvg, insufficientCoverage: true)
-        }
-        
-        let state = HealthEngineStateManager.shared.state
-        var risks: [RiskForecast] = []
-        var totalWeight = 0.0
-        var projectedBaseScore = 0.0
-        
-        func calculateRisk(
-            kind: VitalKind, current: Double?, threshold: Double, normalEdge: Double,
-            band: HealthThresholds.Band, weight: Double, load: Double, baseline: Double,
-            isDescending: Bool = false
-        ) -> Trend? {
-            totalWeight += weight
-            let t = trend(of: trendWindow, config: config, threshold: threshold) { 
-                switch kind {
-                case .heartRate: return $0.vHeartRate.map(Double.init)
-                case .spo2: return $0.vSpo2.map(Double.init)
-                case .bodyTemp: return $0.bodyTemp
-                case .pressure: return $0.systolic.map(Double.init)
-                default: return nil
-                }
-            }
-            
-            if let currentVal = current, let tr = t {
-                // V2 Smart Probability Calculation
-                let slope = tr.slopePerMinute
-                let momentum = isDescending ? (slope < 0 ? tr.rSquared : 0.1) : (slope > 0 ? tr.rSquared : 0.1)
-                
-                let span = abs(threshold - normalEdge)
-                let nearness = span > 0 ? max(0, min(1, 1 - abs(threshold - currentVal) / span)) : 0
-                
-                // Inheriting V2 memory (load & baseline)
-                let loadFactor = min(1.0, load / 100.0) // 0 to 1 based on accumulated stress
-                let baselineDrift = abs(baseline - normalEdge) // simplified drift
-                let baselineRisk = min(0.3, baselineDrift / 100.0) 
-                
-                // Final Probability merges trend momentum with historical load
-                var p = (nearness * 0.5 + momentum * 0.3 + loadFactor * 0.2) * cvg
-                p += baselineRisk // drift adds inherent background risk
-                p = max(0, min(1, p))
-                
-                if p > 0.30 { // Warn earlier in V2 due to load
-                    let tag = isDescending ? "هبوط مستمر" : "ارتفاع مستمر"
-                    let loadWarning = load > 50 ? " وحمل تراكمي عالي" : ""
-                    let speedStr = String(format: "%.1f", abs(slope))
-                    let whyReason = "المؤشر يتجه نحو الخطر بسرعة مع \(tag)\(loadWarning). السرعة: \(speedStr)/دقيقة"
-                    risks.append(RiskForecast(
-                        id: kind.rawValue,
-                        name: "احتمالية تجاوز \(kind.title)",
-                        probability: p,
-                        level: p > 0.70 ? .high : .medium,
-                        why: whyReason,
-                        tags: [kind.title, "تحذير مبكر"]
-                    ))
-                }
-                
-                // Projected Score
-                let projectedVal = tr.projected
-                projectedBaseScore += subScore(projectedVal, band) * weight
-            } else if let currentVal = current {
-                projectedBaseScore += subScore(currentVal, band) * weight
-            }
-            
-            return t
-        }
-        
-        let hrTrend = calculateRisk(
-            kind: .heartRate, current: latest.vHeartRate.map(Double.init),
-            threshold: config.heartRate.criticalHigh, normalEdge: config.heartRate.normal.upperBound,
-            band: config.heartRate, weight: config.weightHeartRate, load: state.hrLoad, baseline: state.baselineHr
-        )
-        
-        let spo2Trend = calculateRisk(
-            kind: .spo2, current: latest.vSpo2.map(Double.init),
-            threshold: config.spo2.criticalLow, normalEdge: config.spo2.normal.lowerBound,
-            band: config.spo2, weight: config.weightSpo2, load: state.spo2Load, baseline: state.baselineSpo2,
-            isDescending: true
-        )
-        
-        let tempTrend = calculateRisk(
-            kind: .bodyTemp, current: latest.bodyTemp,
-            threshold: config.bodyTemp.criticalHigh, normalEdge: config.bodyTemp.normal.upperBound,
-            band: config.bodyTemp, weight: config.weightBodyTemp, load: state.tempLoad, baseline: 36.5
-        )
-        
-        let sysTrend = calculateRisk(
-            kind: .pressure, current: latest.systolic.map(Double.init),
-            threshold: config.systolic.criticalHigh, normalEdge: config.systolic.normal.upperBound,
-            band: config.systolic, weight: config.weightPressure, load: 0, baseline: 120
-        )
-        
-        let finalProjectedScore = totalWeight > 0 ? Int((projectedBaseScore / totalWeight).rounded()) : nil
-        
-        return ForecastResult(
-            risks: risks.sorted { $0.probability > $1.probability },
-            projectedScore: finalProjectedScore,
-            coverage: cvg,
-            insufficientCoverage: false
-        )
-    }
-    
-    private static func trend(
-        of samples: [VitalSample],
-        config: HealthThresholds,
-        threshold: Double,
-        value: (VitalSample) -> Double?
-    ) -> Trend? {
-        let points: [(x: Double, y: Double)] = samples.compactMap { s in
-            guard let y = value(s) else { return nil }
-            return (s.sampleDate.timeIntervalSince1970 / 60, y)
-        }
-        guard points.count >= 4, let last = points.last else { return nil }
-
-        let n = Double(points.count)
-        let mx = points.reduce(0) { $0 + $1.x } / n
-        let my = points.reduce(0) { $0 + $1.y } / n
-
-        let sxx = points.reduce(0) { $0 + ($1.x - mx) * ($1.x - mx) }
-        guard sxx > 0 else { return nil }
-
-        let sxy = points.reduce(0) { $0 + ($1.x - mx) * ($1.y - my) }
-        let slope = sxy / sxx
-        let syy = points.reduce(0) { $0 + ($1.y - my) * ($1.y - my) }
-        let r2 = syy > 0 ? min(1, max(0, (sxy * sxy) / (sxx * syy))) : 0
-
-        let horizon = config.forecastHorizon / 60
-        let projected = last.y + slope * horizon
-        let minToThresh = slope != 0 ? (threshold - last.y) / slope : nil
-        let validMin = (minToThresh ?? -1) > 0 ? minToThresh : nil
-
-        return Trend(slopePerMinute: slope, rSquared: r2, projected: projected, minutesToThreshold: validMin)
-    }
-    
-    public static func classify(_ v: Double, _ b: HealthThresholds.Band) -> VitalBand {
-        if b.normal.contains(v) { return .normal }
-        if v >= b.criticalHigh || v <= b.criticalLow { return .critical }
-        return .caution
-    }
-    
-    public static func subScore(_ v: Double, _ b: HealthThresholds.Band) -> Double {
-        if b.normal.contains(v) { return 100 }
-        if v > b.normal.upperBound {
-            let span = b.criticalHigh - b.normal.upperBound
-            guard span > 0 else { return 0 }
-            return max(0, 100 - (v - b.normal.upperBound) / span * 100)
-        }
-        let span = b.normal.lowerBound - b.criticalLow
-        guard span > 0 else { return 0 }
-        return max(0, 100 - (b.normal.lowerBound - v) / span * 100)
-    }
-    
-    
-    public static func isStationary(_ samples: [VitalSample], metres: Double = 20) -> Bool {
-        let points = samples.compactMap { s -> (Double, Double)? in
-            guard let la = s.vLatitude, let lo = s.vLongitude else { return nil }
-            return (la, lo)
-        }
-        guard let first = points.first, let last = points.last, points.count >= 2 else { return false }
-        return distance(first, last) < metres
-    }
-    
-    private static func distance(_ a: (Double, Double), _ b: (Double, Double)) -> Double {
-        let r = 6_371_000.0
-        let lat1 = a.0 * .pi / 180
-        let lat2 = b.0 * .pi / 180
-        let dLat = (b.0 - a.0) * .pi / 180
-        let dLon = (b.1 - a.1) * .pi / 180
-        let aVal = sin(dLat/2) * sin(dLat/2) + cos(lat1) * cos(lat2) * sin(dLon/2) * sin(dLon/2)
-        return r * 2 * atan2(sqrt(aVal), sqrt(1-aVal))
-    }
-
-    private static func coverage(_ window: [VitalSample], span: TimeInterval, config: HealthThresholds) -> Double {
-        guard window.count > 1 else { return 0 }
-        return min(1.0, Double(window.count) / (span / 60.0))
-    }
-    
-    private static func generateHeadline(band: HealthBand, indicators: [IndicatorReading]) -> String {
-        switch band {
-        case .excellent: return "الحالة ممتازة ومستقرة."
-        case .good: return "الحالة جيدة عموماً."
-        case .attention: return "انتباه: يرجى مراقبة الحالة."
-        case .danger: return "تحذير خطر! هبوط حاد."
-        }
-    }
-    
-
-    private static func trend(for kind: VitalKind, in window: [VitalSample]) -> Trend? {
-        let config = HealthThresholds.default
-        let t = trend(of: window, config: config, threshold: 0) { 
-            switch kind {
-            case .heartRate: return $0.vHeartRate.map(Double.init)
-            case .spo2: return $0.vSpo2.map(Double.init)
-            case .bodyTemp: return $0.bodyTemp
-            case .pressure: return $0.systolic.map(Double.init)
-            default: return nil
-            }
-        }
-        return t
-    }
-
-}
-
-
-
 import Charts
 
 public struct HealthHistoryView: View {
@@ -2920,72 +2976,49 @@ public struct HealthHistoryView: View {
     
     public init() {}
     
+    private static let dayKey: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+
     private var dailyStats: [DailyStat] {
-        let history = syncManager.history
-        let grouped = Dictionary(grouping: history) { record -> String in
-            let formatter = DateFormatter()
-            formatter.dateFormat = "yyyy-MM-dd"
-            return formatter.string(from: record.timestamp)
-        }
-        
+        let calendar = Calendar(identifier: .gregorian)
+        let grouped = Dictionary(grouping: syncManager.history) { calendar.startOfDay(for: $0.timestamp) }
+
         var stepDict: [String: Int] = [:]
         if let decoded = try? JSONDecoder().decode([String: Int].self, from: dailyStepsData) {
             stepDict = decoded
         }
-        
-        var stats: [DailyStat] = []
-        let config = HealthThresholds.default
-        
-        for (dateStr, records) in grouped {
-            let hrs = records.map { $0.heartRate }.filter { $0 > 0 }
-            let spo2s = records.map { $0.spo2 }.filter { $0 > 0 }
-            
-            let hrSum = hrs.reduce(0, +)
-            let spo2Sum = spo2s.reduce(0, +)
-            
-            let avgHr = hrs.isEmpty ? 72 : hrSum / hrs.count
-            let maxHr = hrs.max() ?? 0
-            let minHr = hrs.min() ?? 0
-            let avgSpo2 = spo2s.isEmpty ? 98 : spo2Sum / spo2s.count
-            let tempMax = records.compactMap { $0.bodyTemp }.max() ?? 36.6
-            
+
+        return grouped.map { day, records -> DailyStat in
+            let hrs = records.compactMap { HealthEngine.value($0, .heartRate) }
+            let spo2s = records.compactMap { HealthEngine.value($0, .spo2) }
+            let dateStr = Self.dayKey.string(from: day)
             let steps = stepDict[dateStr] ?? 0
-            let calories = Int(Double(steps) * 0.045)
-            
-            // المؤشر العام مبني على خوارزمية (متوسط النبض ومتوسط الأكسجين)
-            // 1. تقييم المتوسطات
-            let avgHrScore = HealthEngine.subScore(Double(avgHr), config.heartRate)
-            let avgSpo2Score = HealthEngine.subScore(Double(avgSpo2), config.spo2)
-            
-            // 2. تقييم التطرف (الأحداث الحرجة خلال اليوم)
-            let maxHrScore = HealthEngine.subScore(Double(maxHr), config.heartRate)
-            let minHrScore = HealthEngine.subScore(Double(minHr), config.heartRate)
-            let minSpo2 = spo2s.min() ?? 98
-            let minSpo2Score = HealthEngine.subScore(Double(minSpo2), config.spo2)
-            
-            let extremeHrScore = min(maxHrScore, minHrScore)
-            let extremeSpo2Score = minSpo2Score
-            
-            // 3. الدرجة الفعالة (الأحداث الحرجة تسحب التقييم العام بقوة 60%)
-            let effectiveHrScore = (avgHrScore * 0.4) + (extremeHrScore * 0.6)
-            let effectiveSpo2Score = (avgSpo2Score * 0.4) + (extremeSpo2Score * 0.6)
-            
-            var finalScore = (effectiveHrScore * config.weightHeartRate + effectiveSpo2Score * config.weightSpo2) / (config.weightHeartRate + config.weightSpo2)
-            
-            // 4. سقف أسوأ حالة (إذا وصل العامل لمرحلة الخطر في أي لحظة، لا يمكن تقييم يومه بممتاز)
-            let extremeBand = HealthBand.from(score: Int(min(extremeHrScore, extremeSpo2Score)))
-            if extremeBand == .danger && finalScore > 49 { finalScore = 49 }
-            else if extremeBand == .attention && finalScore > 74 { finalScore = 74 }
-            
-            let band = HealthBand.from(score: Int(finalScore))
-            
-            let date = records.first?.timestamp ?? Date()
-            stats.append(DailyStat(dateString: dateStr, date: date, avgHr: avgHr, maxHr: maxHr, minHr: minHr, avgSpo2: avgSpo2, maxTemp: tempMax, steps: steps, calories: calories, band: band))
+
+            // نفس خوارزمية التقارير: متوسط اليوم مع وزن لأسوأ ١٠٪ من الوقت،
+            // وأي نوبة تجاوز حرج متواصلة تسقف اليوم في نطاق الخطر.
+            let assessment = HealthEngine.assessPeriod(records, from: day,
+                                                       to: day.addingTimeInterval(24 * 3600 - 1))
+
+            return DailyStat(
+                dateString: dateStr,
+                date: day,
+                avgHr: hrs.isEmpty ? 0 : Int((hrs.reduce(0, +) / Double(hrs.count)).rounded()),
+                maxHr: Int(hrs.max() ?? 0),
+                minHr: Int(hrs.min() ?? 0),
+                avgSpo2: spo2s.isEmpty ? 0 : Int((spo2s.reduce(0, +) / Double(spo2s.count)).rounded()),
+                maxTemp: records.compactMap { HealthEngine.value($0, .bodyTemp) }.max() ?? 0,
+                steps: steps,
+                calories: Int(Double(steps) * 0.045),
+                band: assessment.band
+            )
         }
-        
-        return stats.sorted { $0.date > $1.date }
+        .sorted { $0.date > $1.date }
     }
-    
+
     public var body: some View {
         ScrollView {
             VStack(spacing: 20) {
@@ -3021,11 +3054,11 @@ struct DailyStatRow: View {
             }
             
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                HistoryCard(title: "متوسط النبض", value: "\(stat.avgHr)", unit: "bpm", icon: "heart.fill", color: SP.Color.dangerText)
-                HistoryCard(title: "أعلى نبض", value: "\(stat.maxHr)", unit: "bpm", icon: "arrow.up.heart", color: SP.Color.dangerText)
-                HistoryCard(title: "أقل نبض", value: "\(stat.minHr)", unit: "bpm", icon: "arrow.down.heart", color: SP.Color.ok)
-                HistoryCard(title: "متوسط الأكسجين", value: "\(stat.avgSpo2)", unit: "%", icon: "drop.fill", color: SP.Color.measure)
-                HistoryCard(title: "أعلى حرارة", value: String(format: "%.1f", stat.maxTemp), unit: "°C", icon: "thermometer", color: SP.Color.accent)
+                HistoryCard(title: "متوسط النبض", value: dash(stat.avgHr), unit: "bpm", icon: "heart.fill", color: SP.Color.dangerText)
+                HistoryCard(title: "أعلى نبض", value: dash(stat.maxHr), unit: "bpm", icon: "arrow.up.heart", color: SP.Color.dangerText)
+                HistoryCard(title: "أقل نبض", value: dash(stat.minHr), unit: "bpm", icon: "arrow.down.heart", color: SP.Color.ok)
+                HistoryCard(title: "متوسط الأكسجين", value: dash(stat.avgSpo2), unit: "%", icon: "drop.fill", color: SP.Color.measure)
+                HistoryCard(title: "أعلى حرارة", value: stat.maxTemp > 0 ? String(format: "%.1f", stat.maxTemp) : "—", unit: "°C", icon: "thermometer", color: SP.Color.accent)
                 HistoryCard(title: "حرق السعرات", value: "\(stat.calories)", unit: "سعرة", icon: "flame.fill", color: .orange)
             }
         }
@@ -3034,6 +3067,8 @@ struct DailyStatRow: View {
         .cornerRadius(16)
         .shadow(color: Color.black.opacity(0.05), radius: 5, x: 0, y: 2)
     }
+
+    private func dash(_ v: Int) -> String { v > 0 ? "\(v)" : "—" }
 }
 
 struct HistoryCard: View {

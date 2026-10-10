@@ -24,9 +24,9 @@
                 } else {
                     ScoreCard(assessment: assessment)
                     ForecastCard(forecast: forecast)
-                    sectionTitle("Ø§Ù„Ù…Ø¤Ø´Ø±Ø§Øª Ø§Ù„Ø­ÙŠÙˆÙŠØ©", trailing: "Ù…Ù‚Ø§Ø±Ù†Ø© Ø¨Ø¢Ø®Ø± Ø³Ø§Ø¹Ø©")
+                    sectionTitle("المؤشرات الحيوية", trailing: "مقارنة بآخر ساعة")
                     metricsGrid
-                    sectionTitle("Ø³Ø¬Ù„ Ø§Ù„Ù‚Ø±Ø§Ø¡Ø§Øª", trailing: nil)
+                    sectionTitle("سجل القراءات", trailing: nil)
                     readingsList
                 }
                 disclaimer
@@ -39,14 +39,14 @@
         .environment(\.layoutDirection, .rightToLeft)
     }
 
-    // MARK: Ø§Ù„Ø£Ø¬Ø²Ø§Ø¡
+    // MARK: الأجزاء
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("ØªØ­Ù„ÙŠÙ„ Ø¢Ø®Ø± Ù¦ Ø³Ø§Ø¹Ø§Øª Â· \(employeeID)")
+            Text("تحليل آخر ٦ ساعات · \(employeeID)")
                 .font(.system(size: 13))
                 .foregroundColor(SP.Color.muted)
-            Text("Ø§Ù„Ø³Ø¬Ù„ Ø§Ù„ØµØ­ÙŠ")
+            Text("السجل الصحي")
                 .font(.system(size: 30, weight: .bold))
                 .foregroundColor(SP.Color.text)
         }
@@ -55,10 +55,10 @@
 
     private var emptyState: some View {
         VStack(spacing: 10) {
-            Text("Ù„Ø§ ÙŠÙˆØ¬Ø¯ Ø³Ø¬Ù„ Ø­ØªÙ‰ Ø§Ù„Ø¢Ù†")
+            Text("لا يوجد سجل حتى الآن")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(SP.Color.text)
-            Text("Ø³ÙŠØ¨Ø¯Ø£ Ø§Ù„ØªÙ‚ÙŠÙŠÙ… ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹ Ø¨Ø¹Ø¯ ÙˆØµÙˆÙ„ Ø£ÙˆÙ„ Ù‚Ø±Ø§Ø¡Ø§Øª Ù…Ù† Ø§Ù„Ø³ÙˆØ§Ø±.")
+            Text("سيبدأ التقييم تلقائياً بعد وصول أول قراءات من السوار.")
                 .font(.system(size: 13))
                 .foregroundColor(SP.Color.muted)
                 .multilineTextAlignment(.center)
@@ -105,13 +105,13 @@
     }
 
     private var disclaimer: some View {
-        Text("ØªÙ‚ÙŠÙŠÙ… Ø¥Ø±Ø´Ø§Ø¯ÙŠ Ù„Ø³Ù„Ø§Ù…Ø© Ø§Ù„Ø¹Ø§Ù…Ù„ Ø§Ù„Ù…ÙŠØ¯Ø§Ù†ÙŠØŒ Ù…Ø¨Ù†ÙŠ Ø¹Ù„Ù‰ Ù‚Ø±Ø§Ø¡Ø§Øª Ø§Ù„Ø³ÙˆØ§Ø± ÙÙ‚Ø·. Ù„ÙŠØ³ ØªØ´Ø®ÙŠØµØ§Ù‹ Ø·Ø¨ÙŠØ§Ù‹ ÙˆÙ„Ø§ Ø¨Ø¯ÙŠÙ„Ø§Ù‹ Ø¹Ù† Ù…Ø±Ø§Ø¬Ø¹Ø© Ø§Ù„Ø·Ø¨ÙŠØ¨.")
+        Text("تقييم إرشادي لسلامة العامل الميداني، مبني على قراءات السوار فقط. ليس تشخيصاً طبياً ولا بديلاً عن مراجعة الطبيب.")
             .font(.system(size: 11))
             .lineSpacing(4)
             .foregroundColor(SP.Color.muted)
     }
 
-    // MARK: Ø¨ÙŠØ§Ù†Ø§Øª Ù…Ø³Ø§Ø¹Ø¯Ø©
+    // MARK: بيانات مساعدة
 
     private var recentSamples: [VitalSample] {
         samples.sorted { $0.sampleDate > $1.sampleDate }.prefix(20).map { $0 }
@@ -138,7 +138,7 @@
     }
 }
 
-// MARK: - Ø¨Ø·Ø§Ù‚Ø© Ø§Ù„ØªÙ‚ÙŠÙŠÙ… Ø§Ù„Ø¹Ø§Ù…
+// MARK: - بطاقة التقييم العام
 
 private struct ScoreCard: View {
     let assessment: HealthAssessment
@@ -158,7 +158,7 @@ private struct ScoreCard: View {
                         Text("\(assessment.score)")
                             .font(.system(size: 38, weight: .semibold, design: .monospaced))
                             .foregroundColor(SP.Color.text)
-                        Text("Ù…Ù† Ù¡Ù Ù ")
+                        Text("من ١٠٠")
                             .font(.system(size: 11))
                             .foregroundColor(SP.Color.muted)
                     }
@@ -179,11 +179,11 @@ private struct ScoreCard: View {
             Divider().overlay(SP.Color.raised)
 
             HStack {
-                stat("Ø¯Ù‚Ø© Ø§Ù„ØªÙ‚ÙŠÙŠÙ…", "\(Int(assessment.coverage * 100))%")
+                stat("دقة التقييم", "\(Int(assessment.coverage * 100))%")
                 Spacer()
-                stat("Ø§Ù„Ù‚Ø±Ø§Ø¡Ø§Øª", "\(assessment.sampleCount)")
+                stat("القراءات", "\(assessment.sampleCount)")
                 Spacer()
-                stat("Ø¢Ø®Ø± ØªØ­Ø¯ÙŠØ«", assessment.updatedAt.map(Self.time) ?? "â€”")
+                stat("آخر تحديث", assessment.updatedAt.map(Self.time) ?? "—")
             }
         }
         .padding(18)
@@ -209,7 +209,7 @@ private struct ScoreCard: View {
     }
 }
 
-// MARK: - Ø¨Ø·Ø§Ù‚Ø© Ø§Ù„ØªÙ†Ø¨Ø¤
+// MARK: - بطاقة التنبؤ
 
 private struct ForecastCard: View {
     let forecast: ForecastResult
@@ -218,7 +218,7 @@ private struct ForecastCard: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Label {
-                    Text("Ø§Ù„ØªÙ†Ø¨Ø¤ Â· Ø§Ù„Ø³Ø§Ø¹Ø© Ø§Ù„Ù‚Ø§Ø¯Ù…Ø©")
+                    Text("التنبؤ · الساعة القادمة")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundColor(SP.Color.text)
                 } icon: {
@@ -232,14 +232,14 @@ private struct ForecastCard: View {
             }
 
             if forecast.insufficientCoverage {
-                Text("ØªØºØ·ÙŠØ© Ø§Ù„Ù‚Ø±Ø§Ø¡Ø§Øª ØºÙŠØ± ÙƒØ§ÙÙŠØ© Ù„Ø¥ØµØ¯Ø§Ø± ØªÙ†Ø¨Ø¤. ØªØ£ÙƒØ¯ Ù…Ù† Ø§ØªØµØ§Ù„ Ø§Ù„Ø³ÙˆØ§Ø± ÙˆØ§Ø³ØªÙ…Ø±Ø§Ø± Ø§Ù„Ø¥Ø±Ø³Ø§Ù„.")
+                Text("تغطية القراءات غير كافية لإصدار تنبؤ. تأكد من اتصال السوار واستمرار الإرسال.")
                     .font(.system(size: 12))
                     .lineSpacing(4)
                     .foregroundColor(SP.Color.muted)
             } else if let top = forecast.risks.first {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(alignment: .firstTextBaseline) {
-                        Text("Ø§Ø­ØªÙ…Ø§Ù„ \(top.name)")
+                        Text("احتمال \(top.name)")
                             .font(.system(size: 14))
                             .foregroundColor(SP.Color.text)
                         Spacer()
@@ -285,14 +285,14 @@ private struct ForecastCard: View {
 
     private var confidenceLabel: String {
         switch forecast.coverage {
-        case 0.8...: return "Ø«Ù‚Ø© Ø¹Ø§Ù„ÙŠØ©"
-        case 0.5..<0.8: return "Ø«Ù‚Ø© Ù…ØªÙˆØ³Ø·Ø©"
-        default: return "Ø«Ù‚Ø© Ù…Ù†Ø®ÙØ¶Ø©"
+        case 0.8...: return "ثقة عالية"
+        case 0.5..<0.8: return "ثقة متوسطة"
+        default: return "ثقة منخفضة"
         }
     }
 }
 
-// MARK: - Ø¨Ø·Ø§Ù‚Ø© Ù…Ø¤Ø´Ø±
+// MARK: - بطاقة مؤشر
 
 private struct MetricCard: View {
     let indicator: IndicatorReading
@@ -327,7 +327,7 @@ private struct MetricCard: View {
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(indicator.band.color)
                 if let trend = indicator.trend, abs(trend.slopePerMinute) > 0.001 {
-                    Text(trend.slopePerMinute > 0 ? "ØµØ§Ø¹Ø¯" : "Ù‡Ø§Ø¨Ø·")
+                    Text(trend.slopePerMinute > 0 ? "صاعد" : "هابط")
                         .font(.system(size: 11))
                         .foregroundColor(SP.Color.muted)
                 }
@@ -350,7 +350,7 @@ private struct MetricCard: View {
     }
 }
 
-// MARK: - ØµÙ Ù‚Ø±Ø§Ø¡Ø©
+// MARK: - صف قراءة
 
 private struct ReadingRow: View {
     let sample: VitalSample
@@ -380,9 +380,9 @@ private struct ReadingRow: View {
         var parts: [String] = []
         if let hr = sample.vHeartRate { parts.append("\(hr) bpm") }
         if let o = sample.vSpo2 { parts.append("\(o)%") }
-        if let t = sample.bodyTemp { parts.append(String(format: "%.1fÂ°", t)) }
+        if let t = sample.bodyTemp { parts.append(String(format: "%.1f°", t)) }
         if let s = sample.systolic, let d = sample.diastolic { parts.append("\(s)/\(d)") }
-        return parts.isEmpty ? "Ù„Ø§ ØªÙˆØ¬Ø¯ Ù‚Ø±Ø§Ø¡Ø© â€” Ø§Ù„Ø³ÙˆØ§Ø± ØºÙŠØ± Ù…ØªØµÙ„" : parts.joined(separator: " Â· ")
+        return parts.isEmpty ? "لا توجد قراءة — السوار غير متصل" : parts.joined(separator: " · ")
     }
 
     private var dotColor: Color {
@@ -392,7 +392,7 @@ private struct ReadingRow: View {
     }
 }
 
-// MARK: - Ø¹Ù†Ø§ØµØ± ØµØºÙŠØ±Ø©
+// MARK: - عناصر صغيرة
 
 private struct StatusPill: View {
     let text: String

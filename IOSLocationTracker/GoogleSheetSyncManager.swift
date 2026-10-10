@@ -1,4 +1,4 @@
-﻿import Foundation
+import Foundation
 
 struct SyncHistoryRecord: Codable, Identifiable {
     var id: UUID = UUID()
@@ -50,7 +50,7 @@ class GoogleSheetSyncManager: ObservableObject {
 
     @Published var lastSyncTime: Date?
     @Published var isSyncing: Bool = false
-    @Published var lastSyncStatus: String = "لم تيم المزامنة بعد"
+    @Published var lastSyncStatus: String = "لم تتم المزامنة بعد"
     @Published var isAutoSyncActive: Bool = false
     @Published var history: [SyncHistoryRecord] = []
 
@@ -92,7 +92,7 @@ class GoogleSheetSyncManager: ObservableObject {
     func startAutoSyncTimer() {
         stopAutoSyncTimer()
         isAutoSyncActive = true
-        print("[GoogleSheetSyncManager] Starting auto-sync timer (every 60 seconds) â±ï¸")
+        print("[GoogleSheetSyncManager] Starting auto-sync timer (every 60 seconds) ⏱️")
 
         // Initial sync after 3 seconds
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
@@ -188,7 +188,7 @@ class GoogleSheetSyncManager: ObservableObject {
         guard let url = URL(string: sheetUrlString) else {
             let err = NSError(domain: "GoogleSheetSync", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid Google Sheet URL"])
             DispatchQueue.main.async {
-                self.lastSyncStatus = "خشأ في رابط Google Sheets"
+                self.lastSyncStatus = "خطأ في رابط Google Sheets"
                 completion?(.failure(err))
             }
             return
@@ -223,7 +223,7 @@ class GoogleSheetSyncManager: ObservableObject {
         } catch {
             DispatchQueue.main.async {
                 self.isSyncing = false
-                self.lastSyncStatus = "Ø®Ø·Ø£ ÙÙŠ ØªØ±Ù…ÙŠØ² Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª"
+                self.lastSyncStatus = "خطأ في ترميز البيانات"
                 completion?(.failure(error))
             }
             return
@@ -241,16 +241,23 @@ class GoogleSheetSyncManager: ObservableObject {
                 UserDefaults.standard.set(historyData, forKey: "sync_history_logs")
             }
             let assessment = HealthEngine.assess(self.history)
+            let forecast = HealthEngine.forecast(self.history)
             HealthAlertCenter.shared.evaluate(assessment)
+            HealthAlertCenter.shared.evaluateForecast(forecast)
             let hr = heartRate > 0 ? heartRate : 0
             let o2 = spo2 > 0 ? spo2 : 0
             if hr > 0 || o2 > 0 {
+                // الخطر المتوقع المرتفع يظهر على شاشة القفل قبل أن يصبح خطراً قائماً.
+                var message = assessment.headline
+                if assessment.score >= 50, let top = forecast.risks.first, top.level == .high {
+                    message = "تنبيه استباقي: \(top.name) (\(Int((top.probability * 100).rounded()))٪)"
+                }
                 if #available(iOS 16.1, *) {
                     HealthLiveActivityManager.shared.update(
                         heartRate: hr,
                         spo2: o2,
                         isCritical: assessment.score < 50,
-                        message: assessment.headline
+                        message: message
                     )
                 }
             }
