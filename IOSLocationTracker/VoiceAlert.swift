@@ -46,9 +46,9 @@ public final class VoiceAlertManager: NSObject, ObservableObject, AVAudioPlayerD
 
     /// ما الذي أطلق التنبيه — يحدد متى يتوقف تلقائياً.
     public enum Trigger {
-        /// التقييم «خطر»: يتوقف حين تتحسن الحالة.
+        /// التقييم «خطر».
         case criticalState
-        /// عدم حركة مع نبض غير طبيعي: يتوقف بالحركة أو «أنا بخير».
+        /// عدم حركة مع نبض غير طبيعي.
         case inactivity
     }
 
@@ -117,14 +117,24 @@ public final class VoiceAlertManager: NSObject, ObservableObject, AVAudioPlayerD
 
     // MARK: التشغيل
 
-    /// نادِها بعد كل تقييم: تبدأ عند «خطر» وتتوقف تلقائياً عند تحسّن الحالة.
+    /// آخر تقييم «خطر» — لعلاج التذبذب حول الحد.
+    private var lastCriticalAt: Date?
+    /// مدة الاستقرار تحت حد الخطر قبل أن يُسمح بتنبيه جديد بعد «أنا بخير».
+    private let calmBeforeRearm: TimeInterval = 5 * 60
+
+    /// نادِها بعد كل تقييم: تبدأ عند «خطر».
+    /// لا تتوقف بنزول القراءة تحت الحد — قد تبقى مرتفعة، أو تتذبذب حوله، أو تكون قراءة عابرة؛
+    /// الإيقاف بـ«أنا بخير» أو بانتهاء المدة القصوى فقط.
     public func evaluate(_ assessment: HealthAssessment, now: Date = Date()) {
         let critical = !assessment.isEmpty && assessment.band == .danger
         guard critical else {
-            if activeTrigger != .inactivity { snoozedUntil = nil }
-            if isActive && activeTrigger == .criticalState { stop() }
+            // بعد «أنا بخير» لا يعود التنبيه إلا إذا استقرت الحالة ٥ دقائق ثم ساءت من جديد.
+            if !isActive, let last = lastCriticalAt, now.timeIntervalSince(last) >= calmBeforeRearm {
+                snoozedUntil = nil
+            }
             return
         }
+        lastCriticalAt = now
         _ = trigger(.criticalState, now: now)
     }
 
@@ -140,13 +150,11 @@ public final class VoiceAlertManager: NSObject, ObservableObject, AVAudioPlayerD
         return true
     }
 
-    /// زوال سبب التنبيه (مثل عودة الحركة) — يوقفه إن كان هو مصدره.
-    public func resolve(_ trigger: Trigger) {
-        if isActive && activeTrigger == trigger { stop() }
-    }
+
 
     /// زر «أنا بخير» في التطبيق أو في الإشعار.
     public func acknowledge() {
+        // التأجيل يبقى حتى تستقر الحالة (انظر evaluate) — المدة هنا حد أقصى فقط.
         snoozedUntil = Date().addingTimeInterval(snooze)
         stop()
         IdoSmartManager.shared.stopBuzz()

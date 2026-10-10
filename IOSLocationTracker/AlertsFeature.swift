@@ -545,8 +545,8 @@ public final class FaintDetector {
             .filter { now.timeIntervalSince($0.sampleDate) <= window && $0.sampleDate <= now }
             .sorted { $0.sampleDate < $1.sampleDate }
 
+        // عودة الحركة لا توقف التنبيه — انحراف GPS قد يُظهر حركة كاذبة؛ الإيقاف بـ«أنا بخير».
         let moving = isMoving(recent, now: now)
-        if moving { VoiceAlertManager.shared.resolve(.inactivity) }
         guard AlertSettings.faintDetection, !moving, let reason = abnormalHeart(samples, now: now, config: config) else {
             return
         }
