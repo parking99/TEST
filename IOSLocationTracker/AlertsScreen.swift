@@ -16,6 +16,7 @@ struct AlertsScreen: View {
     @AppStorage(AlertSettings.rapidChangeKey) private var rapidChange = true
     @AppStorage(AlertSettings.faintKey) private var faintDetection = true
     @AppStorage(VoiceAlertManager.enabledKey) private var voiceAlert = true
+    @AppStorage(AlertSettings.alarmBuzzSecondsKey) private var buzzSeconds = 60
 
     @State private var editing: Reminder?
 
@@ -75,6 +76,22 @@ struct AlertsScreen: View {
                     .font(SP.Font.ui(11.5))
                     .foregroundStyle(SP.Color.muted)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if store.bandMode != .native {
+                HStack {
+                    Text("مدة اهتزاز السوار")
+                        .font(SP.Font.ui(13, .semibold))
+                        .foregroundStyle(SP.Color.text)
+                    Spacer()
+                    Picker("مدة اهتزاز السوار", selection: $buzzSeconds) {
+                        ForEach(AlertSettings.alarmBuzzChoices, id: \.seconds) { c in
+                            Text(c.title).tag(c.seconds)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .tint(SP.Color.accent)
+                }
             }
 
             if ido.isConnected {

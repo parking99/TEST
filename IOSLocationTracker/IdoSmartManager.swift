@@ -809,13 +809,34 @@ class IdoSmartManager: NSObject, ObservableObject, IDOBleDelegate, IDOBridgeDele
 
     // MARK: - اهتزاز السوار
 
-    /// يهزّ السوار بأمر «ابحث عن الجهاز» ثم يوقفه — يعمل مع الأساور بلا شاشة أيضاً.
+    /// رقم جلسة الاهتزاز الحالية — أي جلسة أحدث أو إيقاف يُلغي ما قبلها.
+    private var buzzSession = 0
+
+    /// يهزّ السوار بأمر «ابحث عن الجهاز» طوال المدة — يعمل مع الأساور بلا شاشة أيضاً.
+    /// السوار يوقف الأمر وحده بعد ثوانٍ، فيُعاد إرساله كل ٤ ثوانٍ حتى تنتهي المدة أو يُطلب الإيقاف.
     func buzz(seconds: Double = 4) {
         guard isConnected else { return }
-        _ = Cmds.findDeviceStart().send { _ in }
-        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
-            _ = Cmds.findDeviceStop().send { _ in }
+        buzzSession += 1
+        let session = buzzSession
+        let end = Date().addingTimeInterval(seconds)
+
+        func pulse() {
+            guard session == buzzSession, isConnected else { return }
+            guard Date() < end else {
+                _ = Cmds.findDeviceStop().send { _ in }
+                return
+            }
+            _ = Cmds.findDeviceStart().send { _ in }
+            DispatchQueue.main.asyncAfter(deadline: .now() + min(4, end.timeIntervalSinceNow)) { pulse() }
         }
+        pulse()
+    }
+
+    /// إيقاف الاهتزاز فوراً (زر «تم» أو «ذكّرني لاحقاً» أو فتح الإشعار).
+    func stopBuzz() {
+        buzzSession += 1
+        guard isConnected else { return }
+        _ = Cmds.findDeviceStop().send { _ in }
     }
 
     // MARK: - Centralized Heart Rate Filter & Smoother

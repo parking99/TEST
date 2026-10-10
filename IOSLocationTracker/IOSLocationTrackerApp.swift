@@ -36,6 +36,10 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
+        // أي تفاعل مع إشعار المنبّه يوقف اهتزاز السوار.
+        if response.notification.request.content.categoryIdentifier == ReminderStore.notificationCategory {
+            DispatchQueue.main.async { IdoSmartManager.shared.stopBuzz() }
+        }
         switch response.actionIdentifier {
         case VoiceAlertManager.okAction:
             DispatchQueue.main.async { VoiceAlertManager.shared.acknowledge() }

@@ -24,6 +24,14 @@ public enum AlertSettings {
     public static var outOfRange: Bool { isOn(outOfRangeKey) }
     public static var rapidChange: Bool { isOn(rapidChangeKey) }
     public static var faintDetection: Bool { isOn(faintKey) }
+
+    /// مدة اهتزاز السوار عند المنبّه (حين يهزّه التطبيق).
+    public static let alarmBuzzSecondsKey = "alarm_buzz_seconds"
+    public static let alarmBuzzChoices: [(seconds: Int, title: String)] = [(30, "٣٠ ثانية"), (60, "دقيقة"), (120, "دقيقتان")]
+    public static var alarmBuzzSeconds: Int {
+        let v = UserDefaults.standard.integer(forKey: alarmBuzzSecondsKey)
+        return v > 0 ? v : 60
+    }
 }
 
 // MARK: - البطاقة الطبية
@@ -270,19 +278,14 @@ public final class ReminderStore: ObservableObject {
             let key = r.id.uuidString + stamp
             guard due, !firedKeys.contains(key) else { continue }
             firedKeys.insert(key)
-            // ثلاث هزّات متباعدة حتى تُلاحَظ.
-            for i in 0..<3 {
-                DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 8) {
-                    IdoSmartManager.shared.buzz(seconds: 4)
-                }
-            }
+            IdoSmartManager.shared.buzz(seconds: Double(AlertSettings.alarmBuzzSeconds))
         }
         if firedKeys.count > 50 { firedKeys.removeAll() }
     }
 
-    /// زر «اختبار اهتزاز السوار».
+    /// زر «اختبار اهتزاز السوار»: عشر ثوانٍ تكفي لمعرفة الإحساس.
     public func testBuzz() {
-        IdoSmartManager.shared.buzz(seconds: 3)
+        IdoSmartManager.shared.buzz(seconds: 10)
     }
 
     public static var notificationCategoryDefinition: UNNotificationCategory {
