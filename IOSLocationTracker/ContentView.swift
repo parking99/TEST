@@ -17,6 +17,7 @@ struct ContentView: View {
     @StateObject private var location = LocationManager.shared
     /// مراقبة السجل حتى تتحدّث شاشة السجل والتنبؤ فور وصول كل قراءة.
     @ObservedObject private var syncManager = GoogleSheetSyncManager.shared
+    @ObservedObject private var voiceAlert = VoiceAlertManager.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// نفس مفتاح التخزين المستخدم في البناء الحالي.
@@ -42,7 +43,15 @@ struct ContentView: View {
             .padding(.bottom, 78)
 
             SPTabBar(selection: tab, onSelect: select)
+
+            if voiceAlert.isActive {
+                CriticalAlertBanner { voiceAlert.acknowledge() }
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .zIndex(2)
+            }
         }
+        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: voiceAlert.isActive)
         .preferredColorScheme(.dark)
         .spArabic()
         .onAppear { 
@@ -91,6 +100,45 @@ struct ContentView: View {
                 tab = newTab
             }
         }
+    }
+}
+
+// MARK: - شريط الحالة الحرجة
+
+/// يظهر فوق كل الشاشات ما دام التنبيه الصوتي يعمل.
+struct CriticalAlertBanner: View {
+    let onOK: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "speaker.wave.3.fill")
+                .font(.system(size: 20, weight: .semibold))
+            VStack(alignment: .leading, spacing: 3) {
+                Text("حالة صحية حرجة")
+                    .font(SP.Font.ui(15, .bold))
+                Text("التنبيه الصوتي يعمل لطلب المساعدة")
+                    .font(SP.Font.ui(12))
+                    .opacity(0.9)
+            }
+            Spacer(minLength: 8)
+            Button(action: onOK) {
+                Text("أنا بخير")
+                    .font(SP.Font.ui(14, .bold))
+                    .foregroundStyle(SP.Color.danger)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(Color.white)
+                    .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+        }
+        .foregroundStyle(.white)
+        .padding(14)
+        .background(SP.Color.danger)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .shadow(color: SP.Color.danger.opacity(0.5), radius: 14, y: 6)
+        .padding(.horizontal, 12)
+        .padding(.top, 6)
     }
 }
 
@@ -558,10 +606,11 @@ public final class HealthAlertCenter {
         if let last = lastNotified[indicator.kind], now.timeIntervalSince(last) < cooldown { return }
         lastNotified[indicator.kind] = now
 
-        notify(
-            title: "🚨 تحذير: \(indicator.kind.title) غير طبيعي",
-            body: "\(indicator.kind.iconEmoji) قيمة \(indicator.kind.title) أصبحت \(indicator.display)\(indicator.kind.unit) وهذا يمثل خطورة. يرجى التوقف وأخذ قسط من الراحة فوراً."
-        )
+        var body = "\(indicator.kind.iconEmoji) قيمة \(indicator.kind.title) أصبحت \(indicator.display)\(indicator.kind.unit) وهذا يمثل خطورة. يرجى التوقف وأخذ قسط من الراحة فوراً."
+        if let conditions = VoiceAlertManager.shared.conditionsText {
+            body += "\nالأمراض المزمنة المسجّلة: \(conditions)."
+        }
+        notify(title: "🚨 تحذير: \(indicator.kind.title) غير طبيعي", body: body)
 
         buzzWatch?()
     }

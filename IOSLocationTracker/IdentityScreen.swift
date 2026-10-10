@@ -18,6 +18,10 @@ struct IdentityScreen: View {
     @State private var showUnbindConfirm = false
     @FocusState private var idFieldFocused: Bool
 
+    @AppStorage(VoiceAlertManager.conditionsKey) private var conditionsMask: Int = 0
+    @AppStorage(VoiceAlertManager.otherKey) private var otherConditions: String = ""
+    @AppStorage(VoiceAlertManager.enabledKey) private var voiceAlertEnabled: Bool = true
+
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
@@ -50,6 +54,9 @@ struct IdentityScreen: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .spCard(padding: 16, radius: 16)
+
+                healthProfileCard
+
                 // MARK: - Map View
                 VStack(alignment: .leading, spacing: 9) {
                     Text("موقعك الحالي")
@@ -158,6 +165,88 @@ struct IdentityScreen: View {
         f.dateFormat = "hh:mm a"
         return f
     }()
+}
+
+// MARK: - الحالة الصحية والتنبيه الصوتي
+
+extension IdentityScreen {
+    var healthProfileCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("الأمراض المزمنة")
+                .font(SP.Font.ui(13, .semibold))
+                .foregroundStyle(SP.Color.text)
+
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
+                ForEach(ChronicCondition.allCases) { condition in
+                    conditionChip(condition)
+                }
+            }
+
+            TextField("أخرى (اختياري)", text: $otherConditions)
+                .font(SP.Font.ui(14))
+                .foregroundStyle(SP.Color.text)
+                .padding(.horizontal, 12)
+                .frame(minHeight: 44)
+                .background(SP.Color.ground)
+                .clipShape(RoundedRectangle(cornerRadius: SP.Metric.controlRadius, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: SP.Metric.controlRadius, style: .continuous)
+                        .stroke(SP.Color.lineStrong, lineWidth: 1)
+                )
+
+            Text("تُذكر في التنبيه الصوتي والإشعارات عند الحالة الحرجة لتعريف من يقدّم المساعدة. «أخرى» تظهر في الإشعار فقط.")
+                .font(SP.Font.ui(11.5))
+                .lineSpacing(4)
+                .foregroundStyle(SP.Color.muted)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Divider().overlay(SP.Color.line)
+
+            Toggle(isOn: $voiceAlertEnabled) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("التنبيه الصوتي عند الحالة الحرجة")
+                        .font(SP.Font.ui(13, .semibold))
+                        .foregroundStyle(SP.Color.text)
+                    Text("يعمل حتى مع الوضع الصامت. ارفع مستوى الصوت ليكون مسموعاً.")
+                        .font(SP.Font.ui(11.5))
+                        .foregroundStyle(SP.Color.muted)
+                }
+            }
+            .tint(SP.Color.accent)
+
+            Button {
+                VoiceAlertManager.shared.test()
+            } label: {
+                Label("تجربة الصوت", systemImage: "speaker.wave.2")
+            }
+            .buttonStyle(SPSecondaryButton())
+        }
+        .spCard(padding: 16, radius: 16)
+    }
+
+    private func conditionChip(_ condition: ChronicCondition) -> some View {
+        let selected = conditionsMask & condition.bit != 0
+        return Button {
+            conditionsMask ^= condition.bit
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                Text(condition.title)
+                    .font(SP.Font.ui(13, selected ? .semibold : .regular))
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(selected ? SP.Color.accent : SP.Color.text)
+            .padding(.horizontal, 10)
+            .frame(minHeight: 42)
+            .background(selected ? SP.Color.accent.opacity(0.12) : SP.Color.ground)
+            .clipShape(RoundedRectangle(cornerRadius: SP.Metric.controlRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: SP.Metric.controlRadius, style: .continuous)
+                    .stroke(selected ? SP.Color.accent : SP.Color.lineStrong, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
 }
 
 struct MapLocation: Identifiable {

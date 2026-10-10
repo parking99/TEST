@@ -243,6 +243,7 @@ class GoogleSheetSyncManager: ObservableObject {
             let assessment = HealthEngine.assess(self.history)
             let forecast = HealthEngine.forecast(self.history, fatigue: SleepStore.shared.fatigue())
             HealthAlertCenter.shared.evaluate(assessment)
+            VoiceAlertManager.shared.evaluate(assessment)
             HealthAlertCenter.shared.evaluateForecast(forecast)
             let hr = heartRate > 0 ? heartRate : 0
             let o2 = spo2 > 0 ? spo2 : 0

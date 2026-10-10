@@ -34,6 +34,7 @@
     <string>التطبيق يحتاج للموقع الجغرافي بالخلفية لضمان سلامتك وإرسال نداء الاستغاثة.</string>
     <key>UIBackgroundModes</key>
     <array>
+        <string>audio</string>
         <string>bluetooth-central</string>
         <string>fetch</string>
         <string>location</string>
